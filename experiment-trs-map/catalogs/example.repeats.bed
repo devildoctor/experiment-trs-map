@@ -1,0 +1,3 @@
+# BED coordinates are 0-based and half-open, matching TRGT.
+# The DMPK example corresponds to chr19:45770205-45770264 in 1-based notation.
+chr19	45770204	45770264	ID=DMPK;MOTIFS=CTG;STRUC=<TR>;GENE=DMPK

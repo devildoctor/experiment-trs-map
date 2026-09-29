@@ -1,0 +1,2 @@
+locus_id	candidate_reads	bam	bai	fastq	tsv	audit	summary
+DMPK	33	results/DMPK_v2_smoke/DMPK_v2_smoke.bam	results/DMPK_v2_smoke/DMPK_v2_smoke.bam.bai	results/DMPK_v2_smoke/DMPK_v2_smoke.fastq.gz	results/DMPK_v2_smoke/DMPK_v2_smoke.tsv	results/DMPK_v2_smoke/DMPK_v2_smoke.audit.tsv	results/DMPK_v2_smoke/DMPK_v2_smoke.summary.tsv

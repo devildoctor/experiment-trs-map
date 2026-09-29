@@ -1,0 +1,10 @@
+job_id=156688
+node=cn01
+started=2026-09-28T16:43:53+08:00
+Candidate reads: 33
+BAM: /home/data/user/stzhu/projects/重复区域分析/experiment-trs-map/results/DMPK_test/DMPK.bam
+BAI: /home/data/user/stzhu/projects/重复区域分析/experiment-trs-map/results/DMPK_test/DMPK.bam.bai
+FASTQ: /home/data/user/stzhu/projects/重复区域分析/experiment-trs-map/results/DMPK_test/DMPK.fastq.gz
+TSV: /home/data/user/stzhu/projects/重复区域分析/experiment-trs-map/results/DMPK_test/DMPK.tsv
+Summary: /home/data/user/stzhu/projects/重复区域分析/experiment-trs-map/results/DMPK_test/DMPK.summary.tsv
+finished=2026-09-28T16:43:54+08:00

@@ -1,0 +1,2 @@
+locus_id	candidate_reads	bam	bai	fastq	tsv	audit	summary
+CSTB_EPM1	57	results/CSTB_v1/CSTB_v1.bam	results/CSTB_v1/CSTB_v1.bam.bai	results/CSTB_v1/CSTB_v1.fastq.gz	results/CSTB_v1/CSTB_v1.tsv	results/CSTB_v1/CSTB_v1.audit.tsv	results/CSTB_v1/CSTB_v1.summary.tsv

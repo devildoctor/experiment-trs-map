@@ -1,0 +1,2 @@
+locus_id	candidate_reads	bam	bai	fastq	tsv	audit	summary
+DMPK	50	results/DMPK_v2/DMPK_v2.bam	results/DMPK_v2/DMPK_v2.bam.bai	results/DMPK_v2/DMPK_v2.fastq.gz	results/DMPK_v2/DMPK_v2.tsv	results/DMPK_v2/DMPK_v2.audit.tsv	results/DMPK_v2/DMPK_v2.summary.tsv
