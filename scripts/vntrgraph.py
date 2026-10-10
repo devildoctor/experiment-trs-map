@@ -363,7 +363,12 @@ def cluster_reads(reads: list[Read], minimum: int) -> list[Allele]:
     for (sample, platform), source in sorted(groups.items()):
         clusters: list[list[Read]] = []
         threshold = .96 if platform == "HiFi" else .82
-        for read in sorted(source, key=lambda r: (len(r.sequence), r.name)):
+        exact_counts = Counter(r.sequence for r in source)
+        stable_sequences = {sequence for sequence, count in exact_counts.items() if count >= minimum}
+        for sequence in sorted(stable_sequences):
+            clusters.append([r for r in source if r.sequence == sequence])
+        remaining = [r for r in source if r.sequence not in stable_sequences]
+        for read in sorted(remaining, key=lambda r: (len(r.sequence), r.name)):
             scores = [similarity(read.sequence, group[0].sequence) for group in clusters]
             if scores and max(scores) >= threshold:
                 clusters[scores.index(max(scores))].append(read)
@@ -379,11 +384,12 @@ def cluster_reads(reads: list[Read], minimum: int) -> list[Allele]:
             candidates.append(Allele("", sample, consensus, {platform: len(group)},
                                      tuple(f"{platform}:{r.name}" for r in group),
                                      sum(identities) / len(group), []))
-    # 跨平台只有在全长和碱基高度一致时才合并；保留各平台支持。
+    # 跨平台只合并全长、全碱基一致的共识；单碱基差异先保留为独立候选。
     combined: list[Allele] = []
     for candidate in sorted(candidates, key=lambda a: (-sum(a.support.values()), a.sample)):
         match = next((x for x in combined if x.sample == candidate.sample
-                      and similarity(x.sequence, candidate.sequence) >= .985), None)
+                      and x.sequence == candidate.sequence
+                      and not (set(x.support) & set(candidate.support))), None)
         if match is None:
             combined.append(candidate)
         else:
@@ -450,39 +456,64 @@ def discover_motifs(sequences: list[str], supplied: tuple[str, ...]) -> tuple[st
     return tuple(motifs[:16])
 
 
+def bounded_edit_distance(a: str, b: str, limit: int) -> int:
+    """只计算小差异；超过上限立即返回，包含替换、插入和缺失。"""
+    if abs(len(a) - len(b)) > limit:
+        return limit + 1
+    previous = {j: j for j in range(min(len(b), limit) + 1)}
+    for i, base in enumerate(a, 1):
+        current = {}
+        for j in range(max(0, i - limit), min(len(b), i + limit) + 1):
+            if j == 0:
+                current[j] = i
+            else:
+                current[j] = min(previous.get(j, limit + 1) + 1,
+                                 current.get(j - 1, limit + 1) + 1,
+                                 previous.get(j - 1, limit + 1) + (base != b[j - 1]))
+        if min(current.values(), default=limit + 1) > limit:
+            return limit + 1
+        previous = current
+    return previous.get(len(b), limit + 1)
+
+
 def decompose(sequence: str, motifs: tuple[str, ...]) -> tuple[list[tuple[str, str]], float]:
-    """最短路分解；每个 token 保存真实碱基，未知段不计完整拷贝。"""
+    """DP 分解；状态含前一 motif，允许小 indel、切换惩罚和 UNKNOWN。"""
     n = len(sequence)
-    costs = [float("inf")] * (n + 1)
-    previous = [None] * (n + 1)
-    costs[0] = 0.0
+    states: list[dict[str | None, tuple[float, tuple | None]]] = [dict() for _ in range(n + 1)]
+    states[0][None] = (0.0, None)
     for i in range(n):
-        if costs[i] == float("inf"):
+        if not states[i]:
             continue
-        # 未知单碱基可使任何序列有一条完整可还原路径。
-        if costs[i] + 1.15 < costs[i + 1]:
-            costs[i + 1] = costs[i] + 1.15
-            previous[i + 1] = (i, "UNKNOWN", sequence[i:i + 1])
-        for motif in motifs:
-            length = len(motif)
-            if i + length > n:
-                continue
-            exact = sequence[i:i + length]
-            differences = sum(a != b for a, b in zip(exact, motif))
-            if differences > max(1, int(length * .20)):
-                continue
-            score = costs[i] + .15 + differences * 1.0
-            if score < costs[i + length]:
-                costs[i + length] = score
-                previous[i + length] = (i, motif, exact)
+        for previous_family, (cost, _) in list(states[i].items()):
+            unknown_score = cost + 1.15
+            old = states[i + 1].get(previous_family)
+            if old is None or unknown_score < old[0]:
+                states[i + 1][previous_family] = (
+                    unknown_score, (i, previous_family, "UNKNOWN", sequence[i:i + 1]))
+            for motif in motifs:
+                length = len(motif)
+                allowed = 1 if length <= 6 else min(3, max(2, int(length * .10)))
+                for width in range(max(1, length - allowed), length + allowed + 1):
+                    if i + width > n:
+                        continue
+                    exact = sequence[i:i + width]
+                    differences = bounded_edit_distance(exact, motif, allowed)
+                    if differences > allowed:
+                        continue
+                    switch = .25 if previous_family not in (None, motif) else 0.0
+                    score = cost + .15 + differences + switch
+                    old = states[i + width].get(motif)
+                    if old is None or score < old[0]:
+                        states[i + width][motif] = (score, (i, previous_family, motif, exact))
+    family = min(states[n], key=lambda item: states[n][item][0])
     tokens = []
     position = n
     while position:
-        step = previous[position]
+        step = states[position][family][1]
         assert step is not None
-        start, family, exact = step
-        tokens.append((family, exact))
-        position = start
+        start, previous_family, token_family, exact = step
+        tokens.append((token_family, exact))
+        position, family = start, previous_family
     tokens.reverse()
     merged = []
     for family, exact in tokens:

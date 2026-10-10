@@ -55,9 +55,22 @@ class VntrGraphTests(unittest.TestCase):
         self.assertEqual("".join(text for _, text in tokens), "ACGTTTTT")
         self.assertLess(explained, 1.0)
 
+    def test_same_length_variant_kept_separate(self):
+        first = "ACGT" * 30
+        second = first[:60] + "T" + first[61:]
+        reads = ([mod.Read(f"a{i}", "S1", "HiFi", first) for i in range(3)]
+                 + [mod.Read(f"b{i}", "S1", "HiFi", second) for i in range(3)])
+        alleles = mod.cluster_reads(reads, 3)
+        self.assertEqual({a.sequence for a in alleles}, {first, second})
+
     def test_cigar_projection(self):
         self.assertEqual(mod.reference_to_query(100, "10M8I10M", 110), 10)
         self.assertEqual(mod.reference_to_query(100, "10M8I10M", 115), 23)
+
+    def test_motif_small_indel(self):
+        tokens, explained = mod.decompose("ACGTTACGT", ("ACGT",))
+        self.assertEqual("".join(text for _, text in tokens), "ACGTTACGT")
+        self.assertEqual(explained, 1.0)
 
 
 if __name__ == "__main__":
