@@ -29,6 +29,13 @@ BED 边界是候选搜索窗口，并不自动成为生物学上的精确重复�
 - 与 BAM 比对所用版本一致的 GRCh38 FASTA 和 `.fai`。
 - 全基因组锚点唯一性扫描会读取完整 FASTA，建议在计算节点运行。
 
+服务器上的新分支位于 `/home/data/user/stzhu/重复区域分析/vntr-point-graph`。该目录的 `bamdata` 和 `reference` 是指向原数据目录的符号链接；若从 ZIP 或新检出目录运行，先建立这两个链接：
+
+```bash
+ln -s ../experiment-trs-map/bamdata bamdata
+ln -s ../experiment-trs-map/reference reference
+```
+
 ## 运行
 
 在仓库根目录执行：
