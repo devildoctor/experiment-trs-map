@@ -533,36 +533,46 @@ def write_gfa(path: Path, nodes, edges, paths) -> None:
 
 def write_svg(path: Path, locus: str, alleles: list[Allele], reason: str = "") -> None:
     height = max(150, 85 + 95 * len(alleles))
-    width = 1200
-    lines = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-             '<rect width="100%" height="100%" fill="white"/>',
-             f'<text x="30" y="38" font-family="sans-serif" font-size="24">{escape(locus)} VNTR</text>']
-    if reason:
-        lines.append(f'<text x="30" y="95" font-family="sans-serif" font-size="18" fill="#994444">{escape(reason)}</text>')
     families = list(dict.fromkeys(f for a in alleles for f, _ in a.tokens))
-    for index, allele in enumerate(alleles):
-        y = 80 + index * 95
-        x = 30
+    rows = []
+    width = 1200
+    for allele in alleles:
         runs = []
         for token in allele.tokens:
             if runs and runs[-1][0] == token:
                 runs[-1][1] += 1
             else:
                 runs.append([token, 1])
+        boxes = []
+        row_width = 80
+        for (family, exact), count in runs:
+            label = exact if family != "UNKNOWN" else f"UNKNOWN {len(exact)} bp"
+            label += f" ×{count}" if count > 1 else ""
+            boxwidth = max(76, len(label) * 8 + 16)
+            boxes.append((family, label, boxwidth))
+            row_width += boxwidth + 24
+        width = max(width, row_width + 30)
+        rows.append((allele, boxes))
+    lines = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+             '<rect width="100%" height="100%" fill="white"/>',
+             '<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#555"/></marker></defs>',
+             f'<text x="30" y="38" font-family="sans-serif" font-size="24">{escape(locus)} VNTR</text>']
+    if reason:
+        lines.append(f'<text x="30" y="95" font-family="sans-serif" font-size="18" fill="#994444">{escape(reason)}</text>')
+    for index, (allele, boxes) in enumerate(rows):
+        y = 80 + index * 95
         lines.append(f'<text x="30" y="{y}" font-family="sans-serif" font-size="15">{escape(allele.name)}</text>')
         x = 30
-        for (family, exact), count in runs[:12]:
-            label = exact if len(exact) <= 18 else exact[:15] + "…"
-            label += f" ×{count}" if count > 1 else ""
-            boxwidth = min(150, max(72, len(label) * 8 + 16))
+        lines.append(f'<text x="{x}" y="{y + 35}" font-size="13">左</text>')
+        x += 28
+        for family, label, boxwidth in boxes:
             color = "#999999" if family == "UNKNOWN" else COLORS[families.index(family) % len(COLORS)]
+            lines.append(f'<line x1="{x - 17}" y1="{y + 29}" x2="{x - 3}" y2="{y + 29}" stroke="#555" marker-end="url(#arrow)"/>')
             lines.append(f'<rect x="{x}" y="{y + 12}" width="{boxwidth}" height="34" rx="5" fill="{color}"/>')
             lines.append(f'<text x="{x + 8}" y="{y + 35}" font-family="monospace" font-size="13" fill="white">{escape(label)}</text>')
-            x += boxwidth + 8
-            if x > 900:
-                break
-        if len(runs) > 12:
-            lines.append(f'<text x="{min(x, 1000)}" y="{y + 35}" font-size="14">…</text>')
+            x += boxwidth + 24
+        lines.append(f'<line x1="{x - 17}" y1="{y + 29}" x2="{x - 3}" y2="{y + 29}" stroke="#555" marker-end="url(#arrow)"/>')
+        lines.append(f'<text x="{x}" y="{y + 35}" font-size="13">右</text>')
         copies = sum(1 for family, _ in allele.tokens if family != "UNKNOWN")
         support = ", ".join(f"{p}:{n}" for p, n in sorted(allele.support.items()))
         note = f"{support}; {copies} 完整单元" if not allele.uncertain else f"{support}; 状态待定，拷贝数不报告"
