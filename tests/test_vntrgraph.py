@@ -77,6 +77,12 @@ class VntrGraphTests(unittest.TestCase):
         reads.append(mod.Read("error", "S1", "HiFi", "ACGTACGT"))
         self.assertEqual(mod.make_consensus(reads), "ACGTTTACGT")
 
+    def test_local_motifs_in_complex_locus(self):
+        sequence = "ACGT" * 50 + "GATTACA" * 3 + "ACAT" * 50
+        motifs = mod.discover_motifs([sequence], ())
+        self.assertTrue(any(len(x) == 4 and x in {"ACGT", "CGTA", "GTAC", "TACG"} for x in motifs))
+        self.assertTrue(any(len(x) == 4 and x in {"ACAT", "CATA", "ATAC", "TACA"} for x in motifs))
+
 
 if __name__ == "__main__":
     unittest.main()

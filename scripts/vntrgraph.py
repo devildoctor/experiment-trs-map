@@ -480,24 +480,37 @@ def dbg_evidence(allele: Allele, reads: list[Read]) -> tuple[int, float, int]:
 
 
 def discover_motifs(sequences: list[str], supplied: tuple[str, ...]) -> tuple[str, ...]:
-    """根据自相关找短周期；仅强周期作为新 motif，避免臆测复杂序列。"""
-    motifs = list(supplied)
+    """在整段和局部窗口找周期，允许一个位点含多个重复子区。"""
+    motif_scores = Counter({motif: 100.0 for motif in supplied})
     for sequence in sequences:
-        best = None
-        for period in range(2, min(100, len(sequence) // 2) + 1):
-            total = len(sequence) - period
-            agreement = sum(sequence[i] == sequence[i + period] for i in range(total)) / total
-            if agreement >= .82 and (best is None or (agreement - .0005 * period) > best[0]):
-                best = (agreement - .0005 * period, period)
-        if best:
+        if len(sequence) < 12:
+            continue
+        windows = [(0, sequence)] if len(sequence) <= 180 else [
+            (start, sequence[start:start + 180])
+            for start in range(0, len(sequence) - 90, 90)]
+        for start, window in windows:
+            best = None
+            for period in range(2, min(80, len(window) // 3) + 1):
+                total = len(window) - period
+                agreement = sum(window[i] == window[i + period] for i in range(total)) / total
+                if agreement >= .80:
+                    score = agreement - .0005 * period
+                    if best is None or score > best[0]:
+                        best = (score, period, agreement)
+            if best is None:
+                continue
             period = best[1]
-            for offset in range(min(period, len(sequence) // period)):
-                motif = sequence[offset * period:(offset + 1) * period]
-                if motif not in motifs:
-                    motifs.append(motif)
-        if len(motifs) >= 16:
+            for offset in (0, period // 2):
+                motif = sequence[start + offset:start + offset + period]
+                if len(motif) == period and set(motif) <= DNA:
+                    motif_scores[motif] += best[2]
+    motifs = list(supplied)
+    for motif, _ in motif_scores.most_common():
+        if motif not in motifs:
+            motifs.append(motif)
+        if len(motifs) == 16:
             break
-    return tuple(motifs[:16])
+    return tuple(motifs)
 
 
 def bounded_edit_distance(a: str, b: str, limit: int) -> int:
@@ -528,27 +541,33 @@ def decompose(sequence: str, motifs: tuple[str, ...]) -> tuple[list[tuple[str, s
     for i in range(n):
         if not states[i]:
             continue
-        for previous_family, (cost, _) in list(states[i].items()):
+        candidates = []
+        for motif in motifs:
+            length = len(motif)
+            if sum(a != b for a, b in zip(sequence[i:i + 5], motif[:5])) > 1:
+                continue
+            allowed = 1 if length <= 6 else min(3, max(2, int(length * .10)))
+            for width in range(max(1, length - allowed), length + allowed + 1):
+                if i + width > n:
+                    continue
+                exact = sequence[i:i + width]
+                differences = 0 if exact == motif else bounded_edit_distance(exact, motif, allowed)
+                if differences <= allowed:
+                    candidates.append((motif, width, exact, differences))
+        # 扩展最低代价的四种上一个 motif；其余状态仍保留供回溯。
+        active = sorted(states[i].items(), key=lambda item: item[1][0])[:4]
+        for previous_family, (cost, _) in active:
             unknown_score = cost + 1.15
             old = states[i + 1].get(previous_family)
             if old is None or unknown_score < old[0]:
                 states[i + 1][previous_family] = (
                     unknown_score, (i, previous_family, "UNKNOWN", sequence[i:i + 1]))
-            for motif in motifs:
-                length = len(motif)
-                allowed = 1 if length <= 6 else min(3, max(2, int(length * .10)))
-                for width in range(max(1, length - allowed), length + allowed + 1):
-                    if i + width > n:
-                        continue
-                    exact = sequence[i:i + width]
-                    differences = bounded_edit_distance(exact, motif, allowed)
-                    if differences > allowed:
-                        continue
-                    switch = .25 if previous_family not in (None, motif) else 0.0
-                    score = cost + .15 + differences + switch
-                    old = states[i + width].get(motif)
-                    if old is None or score < old[0]:
-                        states[i + width][motif] = (score, (i, previous_family, motif, exact))
+            for motif, width, exact, differences in candidates:
+                switch = .25 if previous_family not in (None, motif) else 0.0
+                score = cost + .15 + differences + switch
+                old = states[i + width].get(motif)
+                if old is None or score < old[0]:
+                    states[i + width][motif] = (score, (i, previous_family, motif, exact))
     family = min(states[n], key=lambda item: states[n][item][0])
     tokens = []
     position = n
