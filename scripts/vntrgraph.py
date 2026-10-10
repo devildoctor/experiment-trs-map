@@ -33,6 +33,7 @@ class Read:
     sample: str
     platform: str
     sequence: str
+    quality: str = ""
 
 
 @dataclass
@@ -297,7 +298,8 @@ def extract_from_bam(bam: Path, sample: str, platform: str, locus: Locus,
             audit["empty_repeat"] += 1
             continue
         score = min(left_hit[2], right_hit[2]) + .0001 * mapq
-        read = Read(name, sample, platform, repeat)
+        quality = fields[10][left_hit[1]:right_hit[0]] if fields[10] != "*" else ""
+        read = Read(name, sample, platform, repeat, quality)
         if name not in best or score > best[name][0]:
             best[name] = (score, read)
         audit["spanning_alignment"] += 1
@@ -310,11 +312,53 @@ def extract_from_bam(bam: Path, sample: str, platform: str, locus: Locus,
     return [item[1] for item in best.values()], audit
 
 
-def similarity(a: str, b: str) -> float:
-    """限制长度差后计算全序列相似度；关闭 autojunk 以保留重复序列。"""
-    if not a or not b or abs(len(a) - len(b)) > max(10, .20 * max(len(a), len(b))):
+def similarity(a: str, b: str, minimum: float = .80) -> float:
+    """用带宽限定的编辑距离，避免重复序列触发二次方字符串搜索。"""
+    if not a or not b:
         return 0.0
-    return SequenceMatcher(None, a, b, autojunk=False).ratio()
+    if a == b:
+        return 1.0
+    limit = max(2, int((1.0 - minimum) * max(len(a), len(b))))
+    if abs(len(a) - len(b)) > limit:
+        return 0.0
+    distance = bounded_edit_distance(a, b, limit)
+    return 1.0 - distance / max(len(a), len(b)) if distance <= limit else 0.0
+
+
+def align_to_seed(seed: str, read: str, band: int) -> list[tuple[str, int, int]]:
+    """全局带状编辑距离回溯；M/D/I 为匹配、read 缺失、read 插入。"""
+    n, m = len(seed), len(read)
+    band = max(band, abs(n - m))
+    previous = {j: j for j in range(min(m, band) + 1)}
+    trace = {}
+    for j in previous:
+        if j:
+            trace[(0, j)] = (0, j - 1, "I")
+    for i in range(1, n + 1):
+        current = {}
+        for j in range(max(0, i - band), min(m, i + band) + 1):
+            options = []
+            if j and j - 1 in previous:
+                options.append((previous[j - 1] + (seed[i - 1] != read[j - 1]), i - 1, j - 1, "M"))
+            if j in previous:
+                options.append((previous[j] + 1, i - 1, j, "D"))
+            if j and j - 1 in current:
+                options.append((current[j - 1] + 1, i, j - 1, "I"))
+            if options:
+                score, pi, pj, op = min(options)
+                current[j] = score
+                trace[(i, j)] = (pi, pj, op)
+        previous = current
+    if m not in previous:
+        raise ValueError("read 与种子长度差超过比对带宽")
+    operations = []
+    i, j = n, m
+    while i or j:
+        pi, pj, op = trace[(i, j)]
+        operations.append((op, pi, pj))
+        i, j = pi, pj
+    operations.reverse()
+    return operations
 
 
 def make_consensus(reads: list[Read]) -> str:
@@ -323,29 +367,29 @@ def make_consensus(reads: list[Read]) -> str:
     columns = [Counter() for _ in seed]
     insertions = [Counter() for _ in range(len(seed) + 1)]
     for read in reads:
-        matcher = SequenceMatcher(None, seed, read.sequence, autojunk=False)
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == "insert":
-                insertions[i1][read.sequence[j1:j2]] += 1
-            elif tag == "delete":
-                for i in range(i1, i2):
-                    columns[i]["-"] += 1
-            elif tag == "equal":
-                for i, j in zip(range(i1, i2), range(j1, j2)):
-                    columns[i][read.sequence[j]] += 1
+        if read.sequence == seed:
+            for i, base in enumerate(seed):
+                weight = min(40, max(1, ord(read.quality[i]) - 33)) if read.quality else 20
+                columns[i][base] += weight
+            continue
+        band = max(20, int(len(seed) * (.06 if read.platform == "HiFi" else .20)))
+        operations = align_to_seed(seed, read.sequence, band)
+        inserted: dict[int, list[str]] = defaultdict(list)
+        for op, i, j in operations:
+            if op == "M":
+                weight = min(40, max(1, ord(read.quality[j]) - 33)) if read.quality else 20
+                columns[i][read.sequence[j]] += weight
+            elif op == "D":
+                columns[i]["-"] += 20
             else:
-                width = min(i2 - i1, j2 - j1)
-                for offset in range(width):
-                    columns[i1 + offset][read.sequence[j1 + offset]] += 1
-                for i in range(i1 + width, i2):
-                    columns[i]["-"] += 1
-                if j2 - j1 > width:
-                    insertions[i2][read.sequence[j1 + width:j2]] += 1
+                inserted[i].append(read.sequence[j])
+        for i, bases in inserted.items():
+            insertions[i]["".join(bases)] += 20
     result = []
     for i in range(len(seed) + 1):
         if insertions[i]:
             insertion, count = insertions[i].most_common(1)[0]
-            if count > len(reads) / 2:
+            if count > 10 * len(reads):
                 result.append(insertion)
         if i < len(seed):
             base = columns[i].most_common(1)[0][0] if columns[i] else seed[i]
@@ -369,7 +413,7 @@ def cluster_reads(reads: list[Read], minimum: int) -> list[Allele]:
             clusters.append([r for r in source if r.sequence == sequence])
         remaining = [r for r in source if r.sequence not in stable_sequences]
         for read in sorted(remaining, key=lambda r: (len(r.sequence), r.name)):
-            scores = [similarity(read.sequence, group[0].sequence) for group in clusters]
+            scores = [similarity(read.sequence, group[0].sequence, threshold) for group in clusters]
             if scores and max(scores) >= threshold:
                 clusters[scores.index(max(scores))].append(read)
             else:
@@ -378,7 +422,7 @@ def cluster_reads(reads: list[Read], minimum: int) -> list[Allele]:
             if len(group) < minimum:
                 continue
             consensus = make_consensus(group)
-            identities = [similarity(consensus, r.sequence) for r in group]
+            identities = [similarity(consensus, r.sequence, threshold) for r in group]
             if not consensus or sum(x >= threshold for x in identities) < minimum:
                 continue
             candidates.append(Allele("", sample, consensus, {platform: len(group)},

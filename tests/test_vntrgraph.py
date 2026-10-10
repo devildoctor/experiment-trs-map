@@ -72,6 +72,11 @@ class VntrGraphTests(unittest.TestCase):
         self.assertEqual("".join(text for _, text in tokens), "ACGTTACGT")
         self.assertEqual(explained, 1.0)
 
+    def test_consensus_retains_multibase_insertion(self):
+        reads = [mod.Read(str(i), "S1", "HiFi", "ACGTTTACGT") for i in range(3)]
+        reads.append(mod.Read("error", "S1", "HiFi", "ACGTACGT"))
+        self.assertEqual(mod.make_consensus(reads), "ACGTTTACGT")
+
 
 if __name__ == "__main__":
     unittest.main()
