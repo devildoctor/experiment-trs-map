@@ -1,0 +1,3 @@
+alt_contig	alt_start	alt_end	primary_contig	primary_start	primary_end	strand	evidence_url
+chr1_KI270762v1_alt	9969	10469	chr1	2458779	2459279	+	https://www.ncbi.nlm.nih.gov/grc/human
+chr1_KI270762v1_alt	10933	11433	chr1	2459743	2460243	+	https://www.ncbi.nlm.nih.gov/grc/human

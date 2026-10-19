@@ -19,7 +19,7 @@ class VntrGraphTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as folder:
             path = Path(folder) / "loci.bed"
             path.write_text("chr1\t100\t112\tID=TEST;MOTIFS=ACGT\n", encoding="utf-8")
-            self.assertEqual(mod.read_catalog(path)[0], mod.Locus("TEST", "chr1", 100, 112, ("ACGT",)))
+            self.assertEqual(mod.read_catalog(path)[0], mod.Locus("TEST", "chr1", 100, 112, ("ACGT",),100,112))
 
     def test_reference_fai(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as folder:
@@ -47,7 +47,7 @@ class VntrGraphTests(unittest.TestCase):
             self.assertEqual(explained, 1.0)
         nodes, edges, paths = mod.build_graph(alleles, "TTGA", "GGCA")
         self.assertEqual(len(paths), 2)
-        self.assertIn(("ACAT", "ACAT"), nodes)
+        self.assertTrue(any(key[1:] == ("ACAT", "ACAT") for key in nodes))
         self.assertTrue(edges)
 
     def test_unknown_is_not_counted(self):

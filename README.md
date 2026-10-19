@@ -1,68 +1,79 @@
-# VNTR 点位图生成程序
+# VNTR 点位图程序
 
-本分支独立实现 Word 方案中的 VNTR 点位图流程。输入为 `bamdata/样本/平台/*.位点.bam`、匹配的 `reference/*.fa` 与 `.fai`、以及 `catalogs/*.bed`。程序不会调用旧的重复区域提取程序。内部坐标采用 0-based、半开区间。
+本程序独立读取 BAM/BAI、参考 FASTA/FAI 和位点表，生成有独立分子证据的候选序列及 GFA/SVG。根据《VNTR 方案源码核查与修订建议》修订；不调用 TRGT、LongTR、vamos、danbing-tk 或 PGGB，也不声称复现它们的分型性能。
 
-## 文件说明
+2026-10-19 主点位图锚点更新详见 [ANCHOR_UPDATE.md](ANCHOR_UPDATE.md)：多长度模板分级、整份点位 BAM 读取、分子级补充定位验证，以及可选的显式 ALT 同点位映射。展示模式的行数不能代替主图完整支持。
 
-| 文件 | 作用 |
+## 输入和边界
+
+BAM 按 bamdata_by_locus/点位/样本/{HiFi,ONT,ONTUL}/文件名.位点.bam 整理；data_by_locus 和 bamdata 是兼容旧脚本的目录链接。要求 BAI 和匹配的参考。提供的 BAM 是区间左右各 500 bp 的完整可用输入，主点位图顺序读取全部记录，不再次添加参考区间过滤。BED 坐标为 0-based 半开区间。第 4 列支持 ID、MOTIFS，以及成对的 REPEAT_START、REPEAT_END 和 BOUNDARY=confirmed。第 2、3 列保留搜索窗口，明确重复区间必须位于窗口内。
+
+未明确设置 BOUNDARY=confirmed 时使用候选窗口截取观测序列，标记 candidate_boundaries。当前主图目录包含 10 个位点（原有 8 个，加 ATXN2 和 D1S80）；目录中继承的 confirmed 标注并非本程序重新验证的生物学边界。首尾真实碱基不会为凑整数拷贝而修剪。
+
+## 提取和分子证据
+
+BAM 存储 SEQ 与同记录 CIGAR 配套，FLAG 0x10 不再翻转 SEQ。只在 SAM 文本 POS 解析时减 1。原始 query 区间另存，考虑硬剪切与方向。
+
+全参考检查每侧 150/250/350/500 bp 内的全部 31-mer；至少两个不重叠的唯一片段才具备完整支持所需的参考区分能力。read 模板采用编辑距离匹配，内侧切点固定于参考定义，插入保留实际碱基。主/补充 CIGAR 验证匹配位置，低 MAPQ 和次级比对保留审计但不能独立提供可信定位。补充记录不拼接、不填充 N 或参考序列；只有一条记录保存完整双锚及中间实际序列时才能提供完整观测。
+
+分子键是 [sample, namespace, read_name]。namespace 优先来自可选 sources.tsv，其次来自 BAM 的 LB；来源缺失时使用空 namespace，同一样本内相同 read ID 跨文件、跨平台保守去重。RG、LB、HP 和原始记录索引仍保留。同一分子的完整观测不一致时记录 conflicting_sequences 并排除明确支持。
+
+sources.tsv 列名为 bam、namespace；相对 BAM 路径相对该表所在目录解析。同一原始分子的 ONT/ONTUL 数据必须使用同一 namespace，独立文库可显式区分。平台名和文件名不自动代表独立分子。
+
+## 候选和分配
+
+各平台均可提出候选。重复支持的同长度序列差异与簇内稳定残差模式可以拆成不同候选。共识使用实际读段 medoid 和每分子一票的修复；HiFi 可优先提供骨架。它不是质量加权 POA，不随机抽样，不纠正回参考。
+
+距离为完整序列的精确 Levenshtein 距离，采用任意精度位向量，不退化为长度差。回溯扩大比对带宽，并与精确距离核对；超过 600 万 trace 单元返回明确 unresolved，保留候选和原因。
+
+全部原始读段共同评分，输出替换、普通插入/缺失、同聚物 indel 和最优与次优分差。HiFi 每次编辑代价 1；ONT/ONTUL 同聚物 indel 代价 0.5，其余 1。代价在确定性的最短编辑比对上计算，未经过校准，不是概率或全局最优的质量加权比对。默认最小分差 0.5；相近候选保持 ambiguous，无法解释的读段单列。
+
+候选允许超过 2 条。默认按倍性 2 枚举有支持的候选组合，输出描述性代价；超过 12 条候选时明确记录资源限制。超过倍性的候选保留 ploidy_conflict，不强取两个最大簇。仅观察一条序列不报告纯合。标签仅在本位点有效；保留 HP 信息不等于已实施跨位点相位。
+
+## motif 和图
+
+motif 发现与字典分解分开。参考和有支持的候选提出基础单元与复合块，新单元需独立分子证据。发现模块是有限窗口的探索基线，不保证发现全部生物学单元。
+
+token 保存真实切片、起止位置、家族、相位、方向、编辑操作、full/partial/unknown 和注释歧义。基础单元与复合块分别注释，完整、部分单元和未知碱基分别计数，不以总长除单一周期。
+
+GFA 只报告显式保存的完整路径。不同路径上下文和位置使用不同节点；只有完全相同的 token 路径才共享整条内部节点链。这样不会通过共享中间 motif 拼出未观察到的重组路径。节点是互不重叠切片，连接为 0M；两端各 25 bp 是明确标注的参考上下文。
+
+SVG 使用短单元 ID 和完整碱基图例，连续相同单元以 ×N 压缩。×N 表示观测序列显示次数；生物学拷贝数能否报告取决于边界和证据。局部有向 k-mer 图仅核查证据，不剪枝或自由生成等位。
+
+始终验证 token 拼接等于共识、GFA 路径去除参考上下文后等于共识、SVG 压缩展开等于共识。支持数可追溯到分子集合；平台分项可能重叠，不得相加代替独立分子总数。
+
+## 输出
+
+| 文件 | 内容 |
 | --- | --- |
-| `scripts/vntrgraph.py` | BAM/FASTA 读取、双侧翼定界、聚类共识、局部 k-mer 图检查、motif 分解、GFA/SVG 输出与命令行 |
-| `catalogs/VNTR_candidates.bed` | 8 个目标位点的 GRCh38 候选窗口；无预设 motif，须从序列发现 |
-| `tests/test_vntrgraph.py` | 坐标、定界、CIGAR、等位路径可逆性及未知序列回归测试 |
-| `slurm/vntrgraph.sbatch` | 在创新港计算节点上运行单个位点或全部位点 |
-| `.gitignore` | 排除大体积 BAM、参考序列和运行产物 |
+| 位点.svg / 位点.gfa / 位点.json | 图、明确路径、节点与边的分子支持 |
+| status.json / parameters.tsv | 状态、错误、边界、参数、源码与输入校验信息 |
+| molecules.tsv / dedup.tsv / bam_audit.tsv | 分子、SEQ、锚点、原始记录、去重及拒绝原因 |
+| candidates.tsv / audit.tsv | 全部候选 / 通过支持门槛的序列、平台冲突与残差 |
+| assignments.tsv / genotypes.tsv | 所有分子的评分与分配、候选组合及不确定状态 |
+| motifs.tsv / tokens.tsv | 字典与证据、逐个真实切片的注释 |
+| 样本_C编号.dbg.json | 有向 k-mer 邻接、分子支持与有序路径 |
 
-## 方法与判定
+无完整跨越证据时生成说明原因的 SVG 和状态，不伪造 GFA。输入错误导致非零退出；生物学证据不足标为 unresolved。已有结果目录非空时拒绝覆盖，需使用新的运行目录。
 
-1. 核对 BED、FAI 与 BAM 的染色体长度，扫描全套参考 FASTA，要求左右侧翼各至少一个 31-mer 在双链上唯一。
-2. 按位点读取 BAM 主比对和补充比对，用 CIGAR 只限定搜索范围；在 read 内重新匹配左右参考侧翼，拒绝缺失、歧义或逆序锚点。同一 read 只计一次。
-3. 按样本和平台分别聚类。每簇至少 3 条双锚 read，以多数证据形成共识；只有全长序列高度一致才跨平台合并。读段数代表观测支持，不表示染色体拷贝数。
-4. 建立 read 真实邻接形成的局部 k-mer 图，检查共识是否有读段支持。再从参考和共识寻找候选周期，用动态规划得到精确碱基 token；未解释区段标记为 `UNKNOWN`。
-5. GFA 的每个节点存精确碱基，路径重复列出重复节点，能逐碱基还原完整序列。SVG 将连续相同 token 压缩为 `×N`，并显示平台支持。低证据、未知区段或复杂多等位标为待定，不报告整数拷贝数。
+## 验证与 Slurm
 
-BED 边界是候选搜索窗口，并不自动成为生物学上的精确重复边界。对于复杂区域，须检查 `audit.tsv`、`bam_audit.tsv` 和原始 BAM 后再解释图。无可靠双锚 read 时只输出说明原因的 SVG。
-
-## 环境
-
-- Linux Python 3.11 或更新；无需 Python 第三方包。服务器的系统 `python3` 为 3.6，应使用 `/home/data/user/stzhu/miniconda3/bin/python3`。
-- `samtools` 1.20 或更新；BAM 必须按坐标排序且有 BAI。
-- 与 BAM 比对所用版本一致的 GRCh38 FASTA 和 `.fai`。
-- 全基因组锚点唯一性扫描会读取完整 FASTA，建议在计算节点运行。
-
-服务器上的新分支位于 `/home/data/user/stzhu/重复区域分析/vntr-point-graph`。该目录的 `bamdata` 和 `reference` 是指向原数据目录的符号链接；若从 ZIP 或新检出目录运行，先建立这两个链接：
+Python 3.11+ 和 samtools；主点位图另需 requirements-anchors.txt 中固定版本的 edlib 与 pyahocorasick。集群依赖部署于 .deps/vntr-anchors，由 Slurm 设置 PYTHONPATH。集群 Python 是 /home/data/user/stzhu/miniconda3/bin/python3；samtools 是 /home/data/user/stzhu/miniconda3/envs/samtools_env/bin/samtools。
 
 ```bash
-ln -s ../experiment-trs-map/bamdata bamdata
-ln -s ../experiment-trs-map/reference reference
+python3 -m unittest discover -s tests -v
+python3 tests/integration_synthetic.py
 ```
 
-## 运行
+合成 BAM 测试包含正/负链、主/补充比对去重、ONT/ONTUL 分子去重、仅由 ONTUL 跨越的扩增，并验证图的碱基重构及平台支持数。
 
-在仓库根目录执行：
+先把 scripts、tests、catalogs、slurm 和 README.md 保存到 runs-result/ 下新的独立快照目录，并为这些文件生成 SHA256SUMS，然后提交。主图目录为 catalogs/grch38_pointgraph_10_loci_v1.bed；read 和 structure 展示使用 catalogs/grch38_structure_seeds_il1rn_per3_abca7_v1.bed；汇总视图使用 catalogs/grch38_structure_summary_atxn2_d1s80_abca7_v1.bed。
 
 ```bash
-/home/data/user/stzhu/miniconda3/bin/python3 scripts/vntrgraph.py run \
-  --bam-dir bamdata \
-  --reference reference/GRCh38_full_analysis_set_plus_decoy_hla.fa \
-  --catalog catalogs/VNTR_candidates.bed \
-  --out results/vntrgraph \
-  --samtools /home/data/user/stzhu/miniconda3/envs/samtools_env/bin/samtools \
-  --locus ABCA7
+RUN_DIR="$PWD/runs-result/新快照目录"
+bash "$RUN_DIR/slurm/submit.sh" "$RUN_DIR"
 ```
 
-去掉 `--locus ABCA7` 即处理 BED 中全部 8 个位点。结果在 `results/vntrgraph/位点/`，包括 `位点.gfa`、`位点.svg`、`audit.tsv`、`bam_audit.tsv` 和 `parameters.tsv`。没有可信等位路径时不会生成 GFA。
+jobs.tsv 保存作业号。ATXN2 试运行成功后，其余 9 个位点开始。日志位于快照目录的 logs/，结果位于 results/。作业执行前核验源码校验和，根目录后续改动不影响排队任务。每个位点使用 1 节点、2 CPU、16 GB 和 6 小时上限。
 
-## 详细测试步骤
-
-1. 检查输入：`find bamdata -name '*.bam' | wc -l` 应显示 68；`test -f reference/GRCh38_full_analysis_set_plus_decoy_hla.fa.fai`；运行 `samtools quickcheck -v bamdata/LCL8/HiFi/*ABCA7.bam`，应无错误输出。
-2. 运行单元测试：`/home/data/user/stzhu/miniconda3/bin/python3 -m unittest discover -s tests -v`。必须全部 `ok`。
-3. 运行合成 BAM 闭环测试：`/home/data/user/stzhu/miniconda3/bin/python3 tests/integration_synthetic.py`。应输出 `synthetic integration OK`。
-4. 提交单个位点：`sbatch --export=ALL,LOCUS=ABCA7 slurm/vntrgraph.sbatch`。用 `squeue -u "$USER"` 查状态，作业完成后查看 `vntrgraph.<jobid>.out` 和 `.err`。
-5. 核对 `results/vntrgraph/ABCA7/bam_audit.tsv` 的每个 BAM 入选 read 数、拒绝原因；检查 `audit.tsv` 中支持 read 身份、平台支持、回贴相似度、k-mer 图支持和待定标记。
-6. 若存在 `ABCA7.gfa`，逐条读取 P 记录，按 S 节点序列连接。该序列必须等于左侧 25 bp + 对应共识重复序列 + 右侧 25 bp；程序构图时也执行同一断言。检查每条 L 边都在至少一条 P 路径中出现。
-7. 浏览 `ABCA7.svg`，确认不同样本分行、精确 motif 变体分色、连续同序列单元显示 `×N`、待定路径不出现整数拷贝数。SVG 与 GFA 中等位名称和平台支持应相同。
-8. 单个位点通过后，执行 `sbatch slurm/vntrgraph.sbatch` 处理 8 个位点。对不出 GFA 的位点，检查 SVG 错误说明，不手工填入猜测拷贝数。
-
-## 当前判定边界
-
-程序仅在跨越 read 充分且序列可解释时显示确定拷贝数。多数表决共识与 read 支持的局部图用于保守筛选；复杂重排、超长扩增和多个邻接子区可能保留为待定路径，需要进一步人工核查。本实现不把候选 BED 或读段覆盖峰视为确定边界。
+当前是可审计的保守基线，尚未完成真实 BAM 的性能及分型准确性验证。候选边界、平台误差模型和复杂比对歧义仍需结合真实结果核查。

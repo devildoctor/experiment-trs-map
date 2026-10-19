@@ -4,3 +4,8 @@ results/
 logs/
 /bamdata
 /reference
+/runs/
+/runs-result/
+/bamdata_by_locus/
+/data_by_locus
+/.deps/

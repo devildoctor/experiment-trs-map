@@ -13,15 +13,25 @@
 
 set -euo pipefail
 PROJECT='/home/data/user/stzhu/重复区域分析/vntr-point-graph'
-cd "$PROJECT"
+RUN_DIR="${RUN_DIR:?Set RUN_DIR to a versioned source snapshot}"
+cd "$RUN_DIR"
+sha256sum --quiet -c SHA256SUMS
 ARGS=()
 if [[ -n "${LOCUS:-}" ]]; then
   ARGS+=(--locus "$LOCUS")
 fi
-/home/data/user/stzhu/miniconda3/bin/python3 scripts/vntrgraph.py run \
-  --bam-dir bamdata \
-  --reference reference/GRCh38_full_analysis_set_plus_decoy_hla.fa \
-  --catalog catalogs/VNTR_candidates.bed \
-  --out results/vntrgraph \
+if [[ -f "$RUN_DIR/sources.tsv" ]]; then
+  ARGS+=(--sources "$RUN_DIR/sources.tsv")
+fi
+if [[ -n "${REFERENCE_EQUIVALENCE:-}" ]]; then
+  ARGS+=(--reference-equivalence "$REFERENCE_EQUIVALENCE")
+fi
+export PYTHONUNBUFFERED=1
+export PYTHONPATH="$PROJECT/.deps/vntr-anchors${PYTHONPATH:+:$PYTHONPATH}"
+/home/data/user/stzhu/miniconda3/bin/python3 "$RUN_DIR/scripts/vntrgraph.py" run \
+  --bam-dir "$PROJECT/bamdata_by_locus" \
+  --reference "$PROJECT/reference/GRCh38_full_analysis_set_plus_decoy_hla.fa" \
+  --catalog "$RUN_DIR/catalogs/grch38_pointgraph_10_loci_v1.bed" \
+  --out "$RUN_DIR/results" \
   --samtools /home/data/user/stzhu/miniconda3/envs/samtools_env/bin/samtools \
   "${ARGS[@]}"
