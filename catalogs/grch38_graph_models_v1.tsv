@@ -1,0 +1,11 @@
+locus	model	status	reason
+ATXN2	str_unit	validated_existing	Explicit STR_STRUCTURE in the ATXN2 STR catalog
+D1S80	compact_dbg	pilot	16-bp VNTR; compare local exact sequence branches across k
+PER3	explicit_paths	preserve_existing	Await locus-specific structural assessment
+IL1RN	explicit_paths	preserve_existing	Await locus-specific structural assessment
+ACAN	explicit_paths	preserve_existing	Await locus-specific structural assessment
+PLIN4	explicit_paths	preserve_existing	Await locus-specific structural assessment
+WDR7	explicit_paths	preserve_existing	Await locus-specific structural assessment
+CEL	explicit_paths	preserve_existing	Await locus-specific structural assessment
+ABCA7	explicit_paths	preserve_existing	Await locus-specific structural assessment
+MUC1	explicit_paths	preserve_existing	Await locus-specific structural assessment

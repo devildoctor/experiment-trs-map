@@ -484,6 +484,10 @@ def main():
 
 
 if __name__ == '__main__':
+    if '--dbg-view' in sys.argv:
+        sys.argv.remove('--dbg-view')
+        from vntrdbg import main as dbg_main
+        raise SystemExit(dbg_main())
     if '--structure-view' in sys.argv:
         sys.argv.remove('--structure-view')
         from vntrstructure import main as structure_main

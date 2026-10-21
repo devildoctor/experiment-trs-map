@@ -1,5 +1,10 @@
 # VNTR 点位图程序
 
+2026-10-21：新增显式 `--dbg-view` 的 VNTR 压缩 de Bruijn 图试点，
+按 `catalogs/grch38_graph_models_v1.tsv` 分类，D1S80 比较六个 k。
+S/L/P、原始与支持视图、逐路径图和 Slurm 验收见 [VNTR_DBG.md](VNTR_DBG.md)。
+原有 STR、read、structure 和默认点图流程保持原入口。
+
 本程序独立读取 BAM/BAI、参考 FASTA/FAI 和位点表，生成有独立分子证据的候选序列及 GFA/SVG。根据《VNTR 方案源码核查与修订建议》修订；不调用 TRGT、LongTR、vamos、danbing-tk 或 PGGB，也不声称复现它们的分型性能。
 
 2026-10-19 主点位图锚点更新详见 [ANCHOR_UPDATE.md](ANCHOR_UPDATE.md)：多长度模板分级、整份点位 BAM 读取、分子级补充定位验证，以及可选的显式 ALT 同点位映射。展示模式的行数不能代替主图完整支持。
