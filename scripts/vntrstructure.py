@@ -371,7 +371,7 @@ def rows_svg(rows,max_length,title):
                 dashed=' stroke-dasharray="3 2"' if t['status']=='partial' else ''
                 parts.append(f'<rect x="{x:.2f}" y="{y-12}" width="{w:.2f}" height="22" fill="{color(label)}" stroke="#fff" stroke-width=".5"{dashed}><title>{escape(label)}; {t["structure_node"]}; [{t["qstart"]},{t["qend"]}); edit={t["edit_distance"]}; {escape(t["exact_bases"])}</title></rect>')
                 if w>=25:parts.append(f'<text x="{x+w/2:.2f}" y="{y+3}" text-anchor="middle" font-size="9" fill="white">{escape(label)}</text>')
-            summary=f['family_structure']
+            summary=f['str_annotation']['expression'] if 'str_annotation' in f else f['family_structure']
             parts.append(f'<text x="390" y="{y+28}" font-size="11"><title>{escape(summary)}</title>{escape(summary[:140])}{"… (full path in HTML)" if len(summary)>140 else ""}</text>')
             y+=65
     return ''.join(parts)+'</svg>'
@@ -392,6 +392,15 @@ def write_gfa(path,nodes,edges,rows,abstract=False):
 
 
 def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summary_minimum=3,summary_fraction=.10):
+    if locus.str_structure:
+        import vntrstr
+        str_records = vntrstr.annotate_rows(rows,locus.str_structure)
+        if reference_structure:
+            record = vntrstr.path_record('REFERENCE',reference_structure['sequence'],locus.str_structure,
+                                         kind='reference',coverage='catalog_interval')
+            reference_structure['str_annotation'] = record['annotation']
+            str_records.insert(0,record)
+        vntrstr.write_outputs(destination,locus.name,locus.str_structure,str_records)
     graph=summarize(rows,dictionary)
     summary=structural_summary(rows,summary_minimum,summary_fraction)
     audit['structure_summary']=summary['audit']

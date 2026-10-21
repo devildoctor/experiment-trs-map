@@ -335,6 +335,18 @@ def svg_read(row, units, width=1560):
         y += 22
         text(20,y,f'Stored-read coordinates [{fragment["qstart"]},{fragment["qend"]}); boundary={fragment["boundary_status"]}; observed units only')
         y += 18
+        if 'str_annotation' in fragment:
+            import vntrstr
+            diagram, height = vntrstr.svg_blocks(fragment['str_annotation'],y=y,width=width-40)
+            chunks.append(diagram)
+            y += height
+            a = fragment['str_annotation']
+            text(20,y,f'Exact STR fragment; literal bases={a["literal_bases"]}; model match={a["model_match"]}; ambiguous={a["annotation_ambiguity"]}',12)
+            y += 25
+            for start in range(0,len(', '.join(fragment['flags'])),170):
+                text(20,y,', '.join(fragment['flags'])[start:start+170],11,'#955422')
+                y += 17
+            continue
         # Bound visual width; never omit nodes or truncate the path.
         columns = 8
         for i, token in enumerate(fragment['tokens']):
@@ -371,18 +383,23 @@ HTML = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>__LOCUS
 <main id="rows"></main><script id="data" type="application/json">__DATA__</script>
 <script>
 const data=JSON.parse(document.getElementById('data').textContent);let page=0;const size=20;
+if(data.rows.some(r=>r.fragments.some(f=>f.str_annotation))){const p=document.createElement('p');p.innerHTML='<a href="str_paths.tsv">STR 表达表</a> · <a href="str_paths.json">STR 完整切分</a> · <a href="str-svg/index.html">全部 STR 图</a>';document.querySelector('header').append(p);}
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 for(const field of ['sample','platform'])for(const value of [...new Set(data.rows.map(r=>r[field]))].sort()){let op=document.createElement('option');op.value=value;op.textContent=value;document.getElementById(field).append(op)}
 document.getElementById('audit').textContent=JSON.stringify(data.audit,null,2)+'\\n流程：读取全部记录 → 按 BAM/read ID 分组 → 单侧锚点或 CIGAR 截取 → 逐 read 分解真实碱基 → 保存全部节点 → 重构核验。UNKNOWN 表示未完成 motif 注释，碱基仍保留。坐标为 BAM 存储 SEQ 的 0-based 半开坐标。';
 function render(){const q=document.getElementById('search').value.toLowerCase(),s=document.getElementById('sample').value,p=document.getElementById('platform').value,c=document.getElementById('coverage').value;
 const selected=data.rows.filter(r=>(!q||(r.read_id+' '+r.bam).toLowerCase().includes(q))&&(!s||r.sample===s)&&(!p||r.platform===p)&&(!c||r.status===c||r.fragments.some(f=>f.anchor===c)));
 page=Math.max(0,Math.min(page,Math.ceil(selected.length/size)-1));document.getElementById('count').textContent=`共 ${data.rows.length} 条 read；筛选后 ${selected.length} 条。每页 ${size} 条，所有页均来自完整数据。`;document.getElementById('page').textContent=`${page+1} / ${Math.max(1,Math.ceil(selected.length/size))}`;
-document.getElementById('rows').innerHTML=selected.slice(page*size,(page+1)*size).map(r=>`<article>${r.svg}<details><summary>展开该 read 的全部节点与完整碱基</summary>${r.fragments.map(f=>`<h4>${esc(f.id)} · ${esc(f.coverage)} · ${esc(f.anchor)}</h4><p>有序路径：${f.tokens.map(t=>esc(t.node_id)).join(' → ')}</p><table><tr><th>节点 / 单元</th><th>read 坐标</th><th>状态 / 模板编辑距离</th><th>实际碱基</th></tr>${f.tokens.map(t=>`<tr><td>${esc(t.node_id)} / ${esc(t.unit_id)}</td><td>[${t.qstart},${t.qend})</td><td>${esc(t.status)} / ${t.edit_distance}${t.annotation_ambiguity?' / 注释歧义':''}</td><td class="seq">${esc(t.exact_bases)}</td></tr>`).join('')}</table><details><summary>这段实际序列 ${f.sequence.length} bp</summary><pre>${esc(f.sequence)}</pre></details>`).join('')}<details><summary>全部比对记录状态</summary><pre>${esc(JSON.stringify(r.records,null,2))}</pre></details></details></article>`).join('');}
+document.getElementById('rows').innerHTML=selected.slice(page*size,(page+1)*size).map(r=>`<article>${r.svg}<details><summary>展开该 read 的全部节点与完整碱基</summary>${r.fragments.map(f=>`<h4>${esc(f.id)} · ${esc(f.coverage)} · ${esc(f.anchor)}</h4>${f.str_annotation?`<p><b>精确 STR 表达：</b><span class="seq">${esc(f.str_annotation.expression)}</span></p><p class="warn">仅描述观察到的片段；${f.str_annotation.annotation_ambiguity?'存在同分切分歧义':'未发现同分切分'}。模型 ${esc(f.str_annotation.structure)}；字面碱基 ${f.str_annotation.literal_bases} bp。</p><details><summary>STR 切分与备选</summary><pre>${esc(JSON.stringify(f.str_annotation,null,2))}</pre></details>`:''}<p>有序路径：${f.tokens.map(t=>esc(t.node_id)).join(' → ')}</p><table><tr><th>节点 / 单元</th><th>read 坐标</th><th>状态 / 模板编辑距离</th><th>实际碱基</th></tr>${f.tokens.map(t=>`<tr><td>${esc(t.node_id)} / ${esc(t.unit_id)}</td><td>[${t.qstart},${t.qend})</td><td>${esc(t.status)} / ${t.edit_distance}${t.annotation_ambiguity?' / 注释歧义':''}</td><td class="seq">${esc(t.exact_bases)}</td></tr>`).join('')}</table><details><summary>这段实际序列 ${f.sequence.length} bp</summary><pre>${esc(f.sequence)}</pre></details>`).join('')}<details><summary>全部比对记录状态</summary><pre>${esc(JSON.stringify(r.records,null,2))}</pre></details></details></article>`).join('');}
 for(const id of ['search','sample','platform','coverage'])document.getElementById(id).addEventListener('input',()=>{page=0;render()});document.getElementById('prev').onclick=()=>{page--;render()};document.getElementById('next').onclick=()=>{page++;render()};document.getElementById('jump').onclick=()=>{page=(Number(document.getElementById('goto').value)||1)-1;render()};render();
 </script></html>'''
 
 
 def write_outputs(destination,locus,rows,audit):
+    if locus.str_structure:
+        import vntrstr
+        str_records = vntrstr.annotate_rows(rows,locus.str_structure)
+        vntrstr.write_outputs(destination,locus.name,locus.str_structure,str_records)
     units = {}
     node_rows = []
     for row in rows:

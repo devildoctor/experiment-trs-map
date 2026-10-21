@@ -23,6 +23,8 @@ from vntrcore import (VERSION, DNA, Read, Allele, Token, compact, deduplicate_re
 from vntrcore import revcomp as reverse_complement
 import vntranchors
 from vntrmotifs import compound_annotations
+import vntrstr
+import vntrstrgraph
 
 COLORS = ("#4477AA", "#EE7733", "#228833", "#AA3377", "#66CCEE", "#CCBB44")
 
@@ -36,6 +38,7 @@ class Locus:
     search_start: int | None = None
     search_end: int | None = None
     boundary_status: str = "candidate_window"
+    str_structure: str = ""
 
 class IndexedFastaReference:
     """独立 FASTA/FAI 读取器，所有坐标均为 0-based 半开区间。"""
@@ -105,7 +108,8 @@ def read_catalog(path):
         motifs = tuple(x.upper() for x in info.get("MOTIFS","").split(",") if x)
         if any(set(x)-DNA for x in motifs):
             raise ValueError(f"Non-ACGT motif: {name}")
-        loci.append(Locus(name,chrom,start,end,motifs,search_start,search_end,status))
+        structure = vntrstr.validate_config(info.get("STR_STRUCTURE",""), motifs)
+        loci.append(Locus(name,chrom,start,end,motifs,search_start,search_end,status,structure))
         seen.add(name)
     if not loci:
         raise ValueError("Empty locus catalog")
@@ -375,6 +379,27 @@ def process_locus(locus,args,reference,profiles):
         nodes,edges,paths = build_graph(alleles,left,right)
         write_gfa(destination/f'{locus.name}.gfa',nodes,edges,paths)
     write_svg(destination/f'{locus.name}.svg',locus.name,alleles,reason)
+    if locus.str_structure:
+        str_records = [vntrstr.path_record('REFERENCE', reference.fetch(locus.chrom,locus.start,locus.end),
+                       locus.str_structure, kind='reference', coverage='catalog_interval')]
+        str_records += [vntrstr.path_record(a.name,a.sequence,locus.str_structure,
+                        kind='candidate',sample=a.sample,coverage='candidate_sequence',
+                        uncertain=a.uncertain,flags=sorted(set(a.flags)),
+                        supported=len(a.read_ids)>=args.min_support,read_support=len(a.read_ids),
+                        call_status=a.call_status,platform_support=a.support,
+                        ambiguous_molecules=len(a.ambiguous_ids))
+                        for a in candidates]
+        vntrstr.write_outputs(destination,locus.name,locus.str_structure,str_records,figures=False)
+        (destination/f'{locus.name}.svg').rename(destination/f'{locus.name}.detail.svg')
+        if alleles:
+            for suffix in ('gfa', 'json'):
+                (destination/f'{locus.name}.{suffix}').rename(destination/f'{locus.name}.detail.{suffix}')
+            vntrstrgraph.write_outputs(destination,locus.name,
+                [r for r in str_records if r.get('supported') or r['kind']=='reference'],
+                left,right,{a.name:a.read_ids for a in alleles})
+        else:
+            # A reference-only graph must not masquerade as resolved sample data.
+            write_svg(destination/f'{locus.name}.svg',locus.name,alleles,reason)
     rows = [dict(allele=a.name,sample=a.sample,sequence=a.sequence,read_support=len(a.read_ids),
                  platform_support=a.support,molecule_ids=a.read_ids,seed_molecules=a.seed_molecules,
                  seed_source=a.seed_source,call_status=a.call_status,identity=a.identity,
