@@ -337,9 +337,12 @@ def validate_units(records, out):
         ambiguous = truth(summary['annotation_ambiguity'])
         status = 'unresolved' if unknown or partial else 'ambiguous' if ambiguous else 'resolved_count'
         count_status = 'fragment_only' if summary['count_scope'] == 'observed_fragment' else status
-        check(summary['annotation_count_status'] == status and summary['primitive_cn_status'] == count_status,
+        withheld = summary.get('cn_policy') == 'withheld_terminal_validation'
+        reported_status = 'withheld' if withheld and count_status == 'resolved_count' else count_status
+        check(summary['annotation_count_status'] == status and summary['primitive_cn_status'] == reported_status,
               f'{path_id}: overclaimed annotation/count status')
-        check(summary['primitive_cn'] == (str(full) if count_status == 'resolved_count' else 'NA'), 'overclaimed primitive CN')
+        check(summary['primitive_cn'] == (str(full) if count_status == 'resolved_count' and not withheld else 'NA'),
+              'overclaimed primitive CN')
         check(summary['alternative_full_units'] == (str(sum(r['status'] == 'full' for r in alternate)) if alternate else 'NA'),
               'wrong alternative unit count')
         check(int(summary['alternative_limit']) == 1 and summary['score_definition'] == 'descriptive_cost_not_probability',
@@ -381,6 +384,15 @@ def main(out, input_file):
         if 'sequence_sha256' in record:
             check(record['sequence_sha256'] == sha256(record['sequence'].encode()).hexdigest(), 'input hash mismatch')
     manifest = json.loads((out/'manifest.json').read_text(encoding='utf-8'))
+    terminal = manifest.get('terminal_units')
+    for summary in rows(out/'unit_summary.tsv'):
+        if terminal:
+            check(terminal.get('enabled') is True and terminal.get('cn_policy') == 'withheld_terminal_validation',
+                  'terminal manifest lacks explicit CN withholding')
+            check(summary.get('cn_policy') == 'withheld_terminal_validation' and summary['primitive_cn'] == 'NA',
+                  'terminal run must withhold all CN')
+        else:
+            check('cn_policy' not in summary, 'default run unexpectedly overrides CN policy')
     ks = manifest['k']
     check(bool(ks) and len(set(ks)) == len(ks) and all(isinstance(k, int) and k >= 2 for k in ks), 'invalid k values')
     digest, matched = sha256(input_file.read_bytes()).hexdigest(), False

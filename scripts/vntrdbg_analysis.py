@@ -18,6 +18,7 @@ from vntrcore import decompose, revcomp
 from vntrdbg import raw_graph
 
 VERSION = 'd1s80_joint_units_v2'
+TERMINAL_VERSION = 'd1s80_joint_units_terminal_v1'
 UNIT_BP = 16
 
 
@@ -280,18 +281,21 @@ def template_for(token):
     return oriented[phase:] + oriented[:phase]
 
 
-def primitive_units(records, motifs, legacy_tokens):
+def primitive_templates(motifs):
+    from vntrmotifs import primitive_unit
+    return sorted({row['motif'] for row in motifs
+                   if row['usable'] in ('True', True) and row['level'] == 'base'
+                   and len(row['motif']) == UNIT_BP
+                   and len(primitive_unit(row['motif'])) == UNIT_BP})
+
+
+def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
     """Annotate every saved sequence; fragment counts never become locus CN.
 
     The core decomposer retains two paths, not every tied annotation. A tied
     result therefore remains ambiguous even when the two displayed counts agree.
     """
-    from vntrmotifs import primitive_unit
-
-    templates = sorted({row['motif'] for row in motifs
-                        if row['usable'] in ('True', True) and row['level'] == 'base'
-                        and len(row['motif']) == UNIT_BP
-                        and len(primitive_unit(row['motif'])) == UNIT_BP})
+    templates = primitive_templates(motifs)
     if not templates:
         raise ValueError('No usable 16-bp D1S80 templates')
     legacy = defaultdict(list)
@@ -317,7 +321,12 @@ def primitive_units(records, motifs, legacy_tokens):
                         platforms_json=record.get('platforms', []),
                         sequence_sha256=sequence_hash, count_scope=count_scope)
         old_tokens = legacy.get(name, []) if is_candidate else []
-        primary, _, audit = decompose(sequence, tuple(templates), return_details=True)
+        terminal = {}
+        if terminal_by_sample is not None and not fragment:
+            terminal = ({m: identifier for group in terminal_by_sample.values() for m, identifier in group.items()}
+                        if record['kind'] == 'reference' else terminal_by_sample.get(record.get('sample', ''), {}))
+        primary, _, audit = decompose(sequence, tuple(templates), return_details=True,
+                                     right_terminal_motifs=tuple(terminal))
         schemes = {'primary': [dict(vars(item)) for item in primary]}
         if audit['alternative']:
             schemes['alternative'] = [dict(item) for item in audit['alternative']]
@@ -354,6 +363,9 @@ def primitive_units(records, motifs, legacy_tokens):
                                        edit_operations=token['edit_operations'],
                                        annotation_ambiguity=token_ambiguous,
                                        legacy_token_indexes_json=parents if is_candidate else 'NA'))
+                if terminal_by_sample is not None:
+                    path_units[-1]['terminal_template_id'] = (terminal.get(template_for(token), 'NA')
+                                                              if token['end'] == len(sequence) else 'NA')
             if scheme == 'primary':
                 full = sum(token['status'] == 'full' for token in tokens)
                 partial = sum(token['status'] == 'partial' for token in tokens)
@@ -383,6 +395,11 @@ def primitive_units(records, motifs, legacy_tokens):
                                       legacy_full_tokens=sum(row['status'] == 'full' for row in old_tokens)
                                       if is_candidate else 'NA',
                                       method_version=VERSION))
+                if terminal_by_sample is not None:
+                    summaries[-1].update(primitive_cn='NA', cn_policy='withheld_terminal_validation',
+                        primitive_cn_status='withheld' if count_status == 'resolved_count' else count_status,
+                        annotated_full_units=full, available_terminal_ids_json=sorted(terminal.values()),
+                        method_version=TERMINAL_VERSION)
         units.extend(path_units)
         grouped = defaultdict(lambda: [0, 0])
         for row in path_units:
@@ -397,15 +414,73 @@ def primitive_units(records, motifs, legacy_tokens):
     return units, summaries, counts
 
 
+def terminal_evidence(args, records, motifs, source_summary):
+    """Verify frozen provenance before reading raw boundary context on compute node."""
+    from vntrgraph import IndexedFastaReference, read_catalog
+    from vntrterminal import validate_terminals, VERSION as dictionary_version
+    extra = [args.pointgraph_dir/name for name in ('molecules.tsv', 'anchor_decisions.jsonl', 'parameters.tsv')]
+    for path in extra:
+        if sha256(path.read_bytes()).hexdigest() != source_summary['source_evidence_hashes'][path.name]:
+            raise ValueError(f'Terminal evidence differs from frozen provenance: {path.name}')
+    params = {r['parameter']: r['value'] for r in read_tsv(extra[2])}
+    catalog_hash = sha256(args.catalog.read_bytes()).hexdigest()
+    if catalog_hash != params['catalog_sha256'] or catalog_hash != source_summary['catalog_sha256']:
+        raise ValueError('Terminal catalog differs from original boundaries')
+    if params['boundary_shift'] != '0':
+        raise ValueError('Terminal analysis requires the original unshifted boundaries')
+    loci = [l for l in read_catalog(args.catalog) if l.name == 'D1S80']
+    if len(loci) != 1 or loci[0].boundary_status != 'confirmed':
+        raise ValueError('Require one confirmed catalog interval; preserve anchor equivalence caveats')
+    locus = loci[0]
+    reference = args.reference
+    index = Path(str(reference)+'.fai')
+    stat = reference.stat()
+    if (stat.st_size != int(params['reference_size']) or stat.st_mtime_ns != int(params['reference_mtime_ns'])
+            or sha256(index.read_bytes()).hexdigest() != params['reference_fai_sha256']):
+        raise ValueError('Reference identity differs from the frozen extraction')
+    with IndexedFastaReference(reference) as fasta:
+        repeat = fasta.fetch(locus.chrom, locus.start, locus.end)
+        right = fasta.fetch(locus.chrom, locus.end, locus.end+UNIT_BP)
+    ref_records = [r for r in records if r['kind'] == 'reference']
+    if len(ref_records) != 1 or ref_records[0]['sequence'] != repeat:
+        raise ValueError('Frozen reference sequence differs from the unchanged catalog interval')
+    decisions = [json.loads(line) for line in extra[1].read_text(encoding='utf-8').splitlines() if line]
+    candidates, evidence, accepted = validate_terminals(records, read_tsv(extra[0]), decisions,
+        primitive_templates(motifs), right, locus.chrom, locus.start, locus.end, args.terminal_min_support)
+    if candidates:
+        write_tsv(args.out/'terminal_unit_candidates.tsv', candidates, list(candidates[0]))
+    if evidence:
+        write_tsv(args.out/'terminal_molecules.tsv', evidence, list(evidence[0]))
+    details = dict(enabled=True, dictionary_version=dictionary_version, min_support=args.terminal_min_support,
+        side='right', phase_policy='exact_oriented_template_no_rotation_pooling',
+        match_scope='own_sample_complete_intervals_only_reference_uses_accepted_union',
+        cn_policy='withheld_terminal_validation', candidate_votes=False,
+        chrom=locus.chrom, repeat_start0=locus.start, repeat_end0=locus.end,
+        reference_path=str(reference), reference_size=stat.st_size, reference_mtime_ns=stat.st_mtime_ns,
+        reference_repeat_sha256=sha256(repeat.encode()).hexdigest(), right_context_sha256=sha256(right.encode()).hexdigest(),
+        proposed_template_count=len({r['terminal_id'] for r in candidates}),
+        accepted_template_sample_count=sum(r['status'] == 'accepted' for r in candidates),
+        accepted_by_sample={s: sorted(group.values()) for s, group in sorted(accepted.items())},
+        support_definition='unique_sample_molecule_keys; platform subtotals may overlap',
+        boundary_scope='original catalog and original anchor equivalence mode; no new uniqueness claim')
+    return accepted, details, extra+[args.catalog, index]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dbg-dir', type=Path, required=True)
     parser.add_argument('--pointgraph-dir', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--k', type=int, nargs='+', default=[21, 33])
+    parser.add_argument('--terminal-units', action='store_true', help='Validate sample-specific right-terminal templates; withhold CN')
+    parser.add_argument('--terminal-min-support', type=int, default=3)
+    parser.add_argument('--catalog', type=Path)
+    parser.add_argument('--reference', type=Path)
     args = parser.parse_args()
     if len(set(args.k)) != len(args.k) or any(k < 2 for k in args.k):
         parser.error('--k must contain distinct integers >= 2')
+    if args.terminal_units and (args.catalog is None or args.reference is None or args.terminal_min_support < 3):
+        parser.error('--terminal-units requires --catalog, --reference and --terminal-min-support >= 3')
     inputs = [args.dbg_dir/'input_paths.json', args.pointgraph_dir/'motifs.tsv',
               args.pointgraph_dir/'tokens.tsv', args.dbg_dir/'input_summary.json']
     source_summary = json.loads(inputs[3].read_text(encoding='utf-8'))
@@ -429,7 +504,11 @@ def main():
         raise ValueError('Candidate and observed paths are required')
     args.out.mkdir(parents=True, exist_ok=False)
     motifs, legacy = read_tsv(inputs[1]), read_tsv(inputs[2])
-    units, unit_summary, motif_counts = primitive_units(records, motifs, legacy)
+    accepted, terminal_details = None, None
+    if args.terminal_units:
+        accepted, terminal_details, extra_inputs = terminal_evidence(args, records, motifs, source_summary)
+        inputs.extend(extra_inputs)
+    units, unit_summary, motif_counts = primitive_units(records, motifs, legacy, accepted)
     all_queries = []
     for k in args.k:
         for query in branch_queries(records, k):
@@ -470,6 +549,8 @@ def main():
                              'one second-best decomposition is retained, not all optimal paths',
                              'candidate assignment is not used as a support filter',
                              'unit decomposition does not change candidate sequences or genotypes'])
+    if args.terminal_units:
+        manifest.update(method_version=TERMINAL_VERSION, terminal_units=terminal_details)
     (args.out/'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
     print(json.dumps({key: manifest[key] for key in ('method_version','candidate_count',
                                                      'observed_path_count','decomposed_path_count',

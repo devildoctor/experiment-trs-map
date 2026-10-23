@@ -606,31 +606,36 @@ def cigar_edit(template, exact):
     return "".join(f"{n}{op}" for n,op in ops)
 
 
-def decompose(sequence, motifs, level="base", return_details=False):
+def decompose(sequence, motifs, level="base", return_details=False, right_terminal_motifs=()):
     """Two best exact-slice paths under explicit fixed template phase.
 
     Partial bases never count as fully explained copies. Primitive powers are
     excluded from the base layer; the sequence is retained in every path.
+    Optional right-terminal templates retain their supplied phase/orientation
+    and can only explain slices ending at the sequence's right boundary.
     """
     n = len(sequence)
     templates = {primitive_unit(m) if level == 'base' else m for m in motifs}
     templates = tuple(sorted(templates | {revcomp(m) for m in templates}, key=lambda m:(len(m),m)))
+    right_only = set(right_terminal_motifs) - set(templates)
+    match_templates = tuple(sorted(set(templates) | right_only, key=lambda m:(len(m),m)))
     dp = TwoPaths(n)
     for i in range(n):
         weak_terminal = any(len(m)>1 and ((i==0 and sequence[i]==m[-1]) or (i==n-1 and sequence[i]==m[0])) for m in templates)
         dp.offer(i,i+1,.8 if weak_terminal else 2.,(i,i+1,'UNKNOWN',sequence[i:i+1],'unknown'))
-        for motif in templates:
+        for motif in match_templates:
             length = len(motif)
             allowed = 0 if length == 1 else 1 if length <= 6 else min(3,max(1,int(length*.10)))
             for width in range(max(1 if length == 1 else 2,length-allowed),length+allowed+1):
                 if i+width > n: continue
+                if motif in right_only and i+width != n: continue
                 exact = sequence[i:i+width]
                 distance = edit_distance(motif,exact)
                 if distance <= allowed:
                     terminal_partial = width < length and ((i+width == n and motif.startswith(exact)) or (i == 0 and motif.endswith(exact)))
                     if not terminal_partial:
                         dp.offer(i,i+width,.2+distance*1.5,(i,i+width,motif,exact,'full'))
-            if i == 0:
+            if i == 0 and motif not in right_only:
                 for width in range(2,min(length,n+1)):
                     if sequence[:width] == motif[-width:]:
                         dp.offer(i,width,.8,(i,width,motif,sequence[:width],'partial'))
