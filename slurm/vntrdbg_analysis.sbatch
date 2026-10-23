@@ -19,8 +19,12 @@ export PYTHONPATH="$RUN_DIR/source/scripts:$RUN_DIR/source/.deps/vntr-anchors"
 cd "$RUN_DIR/source"
 sha256sum --quiet -c SHA256SUMS
 mkdir -p "$RUN_DIR/acceptance" "$RUN_DIR/results"
-"$PY" -m unittest discover -s tests -p 'test_vntrdbg_analysis.py' -v \
+"$PY" -m unittest discover -s tests -p 'test_vntrdbg_*.py' -v \
   > "$RUN_DIR/acceptance/unit-tests.log" 2>&1
+"$PY" -m unittest discover -s tests -p 'test_dbg.py' -v \
+  > "$RUN_DIR/acceptance/dbg-regression.log" 2>&1
+"$PY" -m unittest discover -s tests -p 'test_str_graph.py' -v \
+  > "$RUN_DIR/acceptance/str-regression.log" 2>&1
 "$PY" scripts/vntrdbg_analysis.py \
   --dbg-dir "$BASE_RUN/results/dbg/D1S80" \
   --pointgraph-dir "$BASE_RUN/results/pointgraph/D1S80" \
