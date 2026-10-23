@@ -51,3 +51,28 @@ checks all frozen graph-result hashes before/after. The validator compares all
 eight candidates and REF, prefix annotations, actual last-unit coordinates,
 sequence reconstruction, CN withholding and unchanged joint support. Aggregate
 comparison and verification outputs can be reviewed without exporting raw reads.
+
+## Validated frozen D1S80 run (2026-10-23)
+
+- Implementation commit: `cc26593d277bb5b0d6013711ed9da03698a57f96`.
+- Run: `runs-result/20261023T141043Z_d1s80-terminal-units`.
+- Baseline: `runs-result/20261023T124501Z_d1s80-joint-units-complete`.
+- Input: `runs-result/20261021T090055Z_vntr-dbg_D1S80` (199 paths).
+- Slurm 163620: cn06, COMPLETED 0:0, 67 seconds. All 186 unit tests passed.
+- Default mode's eight TSVs are byte-identical to baseline. Opt-in mode's five
+  joint-evidence TSVs are byte-identical. Frozen graph artifacts passed all
+  before/after hashes. Source snapshot hashes passed before/after.
+- 47 distinct terminal nominations; only the shared terminal template passed
+  the same-sample threshold. Independent molecule support: LCL5 14 (HiFi9/ONT5),
+  LCL6 16 (HiFi13/ONT3), LCL7 17 (HiFi14/ONT3), LCL8 12 (HiFi9/ONT3), total59.
+- All eight candidates and REF: terminal unknown15 -> 0, partial0, full units+1.
+  Primary annotation before the final32 bases is unchanged; sequence and BED
+  are unchanged. All 199 primitive_cn values are NA.
+- C10 stays432bp, annotated full units26 -> 27, score40.0 -> 9.9. Its final
+  intervals are [400,416) and [416,432), both16=. Other annotation ties remain;
+  this is not a released CN27 or genotype call.
+- Candidate full-unit changes: LCL5_C10 26->27; LCL5_C4 22->23;
+  LCL5_C5 22->23; LCL6_C2 22->23; LCL6_C6 26->27; LCL7_C6 22->23;
+  LCL8_C2 22->23; LCL8_C5 26->27. REF28->29.
+- Review `results/D1S80/comparison.tsv` and `verification.json` under the run.
+  Raw terminal-template/molecule evidence stays server-side. No GitHub upload.
