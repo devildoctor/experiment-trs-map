@@ -3,13 +3,13 @@
 入口为 `scripts/vntrgraph.py --read-view`，实现于 `scripts/vntrreads.py`。
 原候选共识入口仍可使用。此次指定任务仅运行 IL1RN、PER3、ABCA7。
 
-每个 BAM 内的每个 QNAME 均保留一行。无 MAPQ、重复标记、QC 标记、最小支持数或双锚门槛。
+每个 BAM 内的每个 `(namespace, QNAME)` 均保留一行。namespace 优先来自 `--sources` 的显式配置，否则来自记录的 RG→LB，缺失时为空。无 MAPQ、重复标记、QC 标记、最小支持数或双锚门槛。
 单侧锚点允许定位；锚点均不可靠时，用 CIGAR 与位点区间相交得到实际观测片段。
 左右各 500 bp 是用户提供 BAM 的选取上下文，不意味着 BAM 中的 SEQ 已裁剪到窗口；因此按 CIGAR 和 read 坐标提取，不能对 SEQ 简单去掉首尾 500 bp。
 不进行全基因组唯一性前置拦截。双侧局部匹配仅作为截取证据，不声称全基因组唯一。
 
-同一 QNAME 的主、补充和次级比对在同一行中分别保留为片段，不拼接重叠 SEQ。
-跨 BAM 重复 QNAME 仍展示在各自文件下，不将行数解释为独立分子支持。
+同一 namespace/QNAME 的主、补充和次级比对在同一行中分别保留为片段，不拼接重叠 SEQ。
+跨 BAM 重复的分子仍展示在各自文件下，不将行数解释为独立分子支持。`reads.tsv` 和 JSON 保留 namespace、三段 molecule_key 及来源；同名的独立文库可区分，同 namespace 的副本支持只计一次。
 负链 BAM 存储 SEQ 与本记录 CIGAR 配套，不再次反向互补。
 保留重复区内部以及边界上的插入；软剪切未知部分不推断为 VNTR；硬剪切缺失碱基明确不可用。
 仅覆盖侧翼、SEQ 缺失等 read 仍有状态行，完整比对及存储 SEQ 写入 records.jsonl。

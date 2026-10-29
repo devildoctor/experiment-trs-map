@@ -1,7 +1,7 @@
 """Evidence-backed structure classes, local modules and reference exploration.
 
 Classes describe ordered motif runs, not inferred genotypes. All memberships
-retain a fragment ID and molecular support is deduplicated by sample/QNAME.
+retain a fragment ID and molecular support is deduplicated by sample/namespace/QNAME.
 """
 from collections import Counter, defaultdict
 from hashlib import sha256
@@ -11,12 +11,15 @@ import json
 
 from vntrcore import canonical_motif, compact, revcomp
 from vntrmotifs import exact_runs
+from vntrreads import row_molecule_key
 
 
+# 由结构内容生成稳定短 ID；ID 表达内容分组，不表示生物学等位基因编号。
 def identity(prefix, value):
     return prefix+sha256(compact(value).encode()).hexdigest()[:12]
 
 
+# 只合并相邻同标签的完整单元；未知和部分单元保持可见边界。
 def blocks(tokens):
     result=[]
     for i,t in enumerate(tokens):
@@ -29,11 +32,13 @@ def blocks(tokens):
     return result
 
 
+# 骨架用 ×n 忽略次数差异，详细表达保留实际次数。
 def structure_text(bs, skeleton=False):
     return ' → '.join(b['label']+('×n' if skeleton else '×'+str(b['count'])) if b['status']=='unit'
                      else f"{b['label']}({b['bp_end']-b['bp_start']}bp)" for b in bs)
 
 
+# 记录参考序列、窗口精确周期和来源；目录边界标签不等于自动确认边界。
 def reference_report(locus, sequence, window, window_start, dictionary, segment, strand, fasta):
     tokens=segment((sequence,dictionary,'HiFi'));bs=blocks(tokens)
     for t in tokens:
@@ -57,14 +62,17 @@ def reference_report(locus, sequence, window, window_start, dictionary, segment,
                 limitations='Reference is one sequence, not population structure. Boundary status is catalog metadata; no automatic confirmation. Exact scan can miss imperfect repeats. Gene strand must be supplied.')
 
 
+# 用于强证据筛选：主比对、MAPQ≥20，并排除重复、QC失败和锚点次序冲突。
 def is_primary(f):
     return f['alignment_type']=='primary' and f['mapq']>=20 and not set(f.get('flags',[]))&{'duplicate_flag','qc_fail','anchor_order_conflict_cigar_fallback'}
 
 
+# 完整结构强证据还要求 HiFi、双锚点及两侧至少 90% 的局部锚点匹配。
 def strong_boundary(row,f):
     return row['platform']=='HiFi' and is_primary(f) and f['coverage']=='spans_candidate_interval' and f['anchor']=='both' and all(x is not None and x>=.9 for x in f.get('anchor_scores',[1,1]))
 
 
+# 发现实际片段中的复合串联块和相邻游程窗口，不跨越未知、残片或反向候选。
 def local_candidates(tokens,max_unit_tokens=12):
     """Tandem patterns and short ordered run windows, never crossing U/P.
 
@@ -99,11 +107,12 @@ def local_candidates(tokens,max_unit_tokens=12):
     return result
 
 
+# 按有序骨架分类型、按次数组合分亚型；同一分子出现冲突时保留为未分配。
 def structural_summary(rows,minimum=3,min_fraction=.10):
     classes={};modules={};assignments=[];denominators=defaultdict(set);molecule_paths=defaultdict(set)
     observations=[]
     for row in rows:
-        molecular=compact([row['sample'],row['read_id']])
+        molecular=row_molecule_key(row)
         for f in row['fragments']:
             if strong_boundary(row,f):denominators[row['sample']].add(molecular)
             bs=blocks(f['tokens']);reason=[]
@@ -124,7 +133,7 @@ def structural_summary(rows,minimum=3,min_fraction=.10):
         high=strong_boundary(row,f) and not conflict
         evidence='strong' if cid and high else 'supporting' if cid else 'unassigned'
         assignment=dict(row_id=row['id'],read_id=row['read_id'],fragment_id=f['id'],sample=row['sample'],
-                        platform=row['platform'],molecule=molecular,class_id=cid,subtype_id=sid,
+                        namespace=row.get('namespace',''),platform=row['platform'],molecule=molecular,class_id=cid,subtype_id=sid,
                         evidence=evidence,reason=','.join(reason) or ('boundary_or_platform_limited' if not high else ''),length=len(f['sequence']),module_ids=[])
         f['class_id']=cid;f['subtype_id']=sid;f['summary_evidence']=evidence
         assignments.append(assignment)
@@ -167,6 +176,7 @@ def structural_summary(rows,minimum=3,min_fraction=.10):
             if a['evidence']=='strong':strong[a['sample']].add(a['molecule'])
         group['hifi_support']=len(set().union(*strong.values())) if strong else 0
         group['sample_evidence']={s:dict(support=len(strong[s]),denominator=len(denominators[s]),fraction=len(strong[s])/max(1,len(denominators[s]))) for s in group['samples']}
+        # 完整类型要求至少一个样本同时满足支持条数和该样本内比例两个门槛。
         group['status']='supported' if any(v['support']>=minimum and v['fraction']>=min_fraction for v in group['sample_evidence'].values()) else 'candidate'
         subs=[]
         for sub in group['subtypes'].values():
@@ -182,6 +192,7 @@ def structural_summary(rows,minimum=3,min_fraction=.10):
     for module in modules.values():
         instances=module['instances'];module.update(counts(instances))
         eligible={a['molecule'] for a in instances if a['eligible']}
+        # 局部模块使用全批次合格分子总数，不能套用上面的完整类型样本内门槛。
         exact={a['molecule'] for a in instances if a['exact']}
         module.update(hifi_support=len(eligible),exact_support=len(exact),approximate_support=len({a['molecule'] for a in instances if not a['exact']}),occurrences=len({a['occurrence_key'] for a in instances}),
                       status='supported' if len(eligible)>=minimum else 'candidate')
@@ -194,11 +205,12 @@ def structural_summary(rows,minimum=3,min_fraction=.10):
                unassigned_fragments=sum(not a['class_id'] for a in assignments),conflicting_molecules=len(conflicts),
                eligible_hifi_by_sample={s:len(v) for s,v in sorted(denominators.items())},minimum_support=minimum,minimum_sample_fraction=min_fraction,
                module_search='primitive tandem periods 2..12 tokens; shared blocks 2..3 intact runs; no U/P crossing; all candidates retained',
-               support_definition='distinct sample/QNAME, not traversal count; complete classes and local modules have different coverage requirements',
+               support_definition='distinct sample/namespace/QNAME, not traversal count; complete classes and local modules have different coverage requirements',
                limitations='Observed structure classes, not phased alleles or population frequencies. Local exact/approximate support can overlap. No imputation across U/P or partial coverage.')
     return dict(classes=finished,modules=completed_modules,assignments=assignments,audit=audit)
 
 
+# 静态摘要最多展示 20 个达到门槛的类型；完整候选仍在 HTML 和 TSV 中。
 def summary_svg(summary,locus):
     groups=[g for g in summary['classes'] if g['status']=='supported'][:20]
     height=max(170,85+len(groups)*95)

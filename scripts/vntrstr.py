@@ -16,6 +16,7 @@ from vntrmotifs import primitive_unit
 VERSION = "1.0-exact-str"
 
 
+# 解析限定的 STR 语法，并把复合重复词约简为基本周期；不支持任意正则表达式。
 @lru_cache(maxsize=128)
 def parse_structure(structure):
     tokens, pos = [], 0
@@ -38,6 +39,7 @@ def parse_structure(structure):
     return tuple(tokens)
 
 
+# 先检查原始目录单元长度，再约简周期，防止长 VNTR 借约简进入 STR 模式。
 def validate_config(structure, catalog_motifs):
     if structure:
         parse_structure(structure)
@@ -47,16 +49,19 @@ def validate_config(structure, catalog_motifs):
     return structure
 
 
+# 重复块按次数展开，其他块使用原始字面碱基，得到完整输入序列。
 def reconstruct(blocks):
     return "".join(b["motif"]*b["count"] if b["kind"] == "repeat"
                    else b["exact_bases"] for b in blocks)
 
 
+# 生成便于阅读的表达式；表达式次数只描述这条序列，不直接表示基因型。
 def format_blocks(blocks):
     return "–".join(f'({b["motif"]}){b["count"]}' if b["kind"] == "repeat"
                     else b["exact_bases"] for b in blocks) or "(empty)"
 
 
+# 反向互补时同时反转区块顺序、坐标和字面序列，不能只替换 motif。
 def reverse_blocks(blocks):
     """Reverse-complement the WHOLE path, including literals and their order."""
     def rc(s):
@@ -71,6 +76,7 @@ def reverse_blocks(blocks):
     return result
 
 
+# 把精确重复匹配之间的所有间隙和末端补回为字面序列。
 def _blocks(sequence, path):
     blocks, pos = [], 0
     for start, end, motif in path:
@@ -84,6 +90,7 @@ def _blocks(sequence, path):
     return blocks
 
 
+# 固定模板相位，以字面碱基最少、重复块最少的顺序求解，并保留一个备选。
 def annotate(sequence, structure):
     """Two best distinct exact decompositions; fixed configured phase.
 
@@ -92,6 +99,7 @@ def annotate(sequence, structure):
     A run needs >=2 copies. Single units/tails remain literal sequence.
     """
     model = parse_structure(structure)
+    # 切分使用模型中的 motif 集合；完整模型的先后顺序和字面片段由 model_match 另行检查。
     motifs = sorted({t["motif"] for t in model if t["kind"] == "repeat"})
     n = len(sequence)
     dp = [[] for _ in range(n+1)]
@@ -136,10 +144,12 @@ def annotate(sequence, structure):
                 reconstruction_ok=True, copy_number_scope="exact_runs_in_this_sequence_only")
 
 
+# 为注释绑定路径 ID 和来源元数据，保持候选与观测片段的身份区别。
 def path_record(identifier, sequence, structure, **metadata):
     return dict(id=identifier, **metadata, annotation=annotate(sequence, structure))
 
 
+# 给每个已有观测片段附加 STR 注释；不更改提取边界或原始序列。
 def annotate_rows(rows, structure):
     records = []
     for row in rows:
@@ -154,6 +164,7 @@ def annotate_rows(rows, structure):
     return records
 
 
+# 结构框不按 bp 等比例绘制；长字面序列通过换行显示而非省略。
 def svg_blocks(annotation, x=20, y=0, width=1460):
     """Wrapped, non-proportional exact blocks; every literal base is displayed."""
     parts, cursor, top = [], x, y
@@ -179,6 +190,7 @@ def svg_blocks(annotation, x=20, y=0, width=1460):
     return "".join(parts), top-y+52
 
 
+# 逐路径显示注释、覆盖和候选不确定性，保留支持信息的原有口径。
 def write_paths_svg(path, title, records, reason=""):
     body, y = [], 110
     if reason:
@@ -210,6 +222,7 @@ def write_paths_svg(path, title, records, reason=""):
     path.write_text(header+"".join(body)+"</svg>", encoding="utf-8")
 
 
+# JSON 保存完整切分和备选，TSV 保存摘要，SVG 每页最多 40 条且不抽样。
 def write_outputs(destination, locus, structure, records, figures=True):
     payload = dict(version=VERSION, locus=locus, structure=structure, records=records,
                    limitation="Exact configured-motif annotation only; no new genotype inference or boundary adjustment")

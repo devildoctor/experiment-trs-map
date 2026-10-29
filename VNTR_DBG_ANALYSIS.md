@@ -7,10 +7,12 @@ existing GFA, candidate sequences, read assignments, or genotype status.
 point-graph `motifs.tsv`/`tokens.tsv`. It verifies D1S80 identity, each sequence
 hash and the point-graph hashes against frozen `input_summary.json` before
 writing results. For k=21 and k=33, it finds branch-edge
-blocks from exact observed k+1-mers. An observed edge must have three distinct
-molecules in one sample to define a supported branch; reference and candidate
+blocks from exact observed k+1-mers. An observed edge must have `--branch-min-support` distinct
+molecules in one sample (default 3) to define a supported branch; reference and candidate
 edges are retained as explicit hypotheses. Adjacent, nonoverlapping branch
 blocks define an ordered interval in the candidate's actual base sequence.
+
+The branch threshold belongs to this analysis stage, is recorded in `manifest.json`, and is not implicitly inherited from graph filtering. Set it explicitly when comparing analyses with different thresholds. Candidates without same-sample OBS produce zero tested/support/conflict counts, `support_fraction=NA`, and header-only molecule evidence tables rather than an export error.
 
 `joint_queries.tsv` gives the exact interval and candidate coordinates. For an
 interval, `joint_molecules.tsv` records every contiguous exact occurrence in

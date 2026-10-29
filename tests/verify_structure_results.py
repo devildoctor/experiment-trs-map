@@ -15,8 +15,9 @@ def main():
         elif f[0]=='P':paths[f[1]]=f[2].split(',')
     checks=0;rows=d['rows'];seen=set()
     for r in rows:
-        row_key=(r['sample'],r['platform'],r['bam'],r['read_id']);assert row_key not in seen;seen.add(row_key)
-        key=(r['sample'],r['read_id'])
+        row_key=(r['sample'],r['platform'],r['bam'],r.get('namespace',''),r['read_id']);assert row_key not in seen;seen.add(row_key)
+        key=(r['sample'],r.get('namespace',''),r['read_id'])
+        if 'molecule_key' in r:assert tuple(json.loads(r['molecule_key']))==key
         for f in r['fragments']:
             ts=f['tokens'];assert ''.join(nodes[x[:-1]] for x in paths[f['id']])==f['sequence']
             end=0
@@ -32,11 +33,19 @@ def main():
     report=dict(status='passed',reads=len(rows),fragments=checks,exact_gfa_reconstruction=True,support_dedup=True)
     if len(sys.argv)>2:
         previous=Path(sys.argv[2]);old=json.loads((previous/f'{locus}.reads.json').read_text(encoding='utf-8'))
-        def inventory(rs):return {(r['sample'],r['platform'],r['bam'],r['read_id']):r for r in rs}
+        # 旧版可能把同 QNAME 的不同 LB 合并为一行；比较实际记录和片段多重集合。
+        def inventory(rs):
+            result={}
+            for r in rs:
+                key=(r['sample'],r['platform'],r['bam'],r['read_id'])
+                item=result.setdefault(key,dict(records=0,fragments=Counter()))
+                item['records']+=r['record_count']
+                item['fragments'].update((f['sequence'],f['qstart'],f['qend']) for f in r['fragments'])
+            return result
         before=inventory(old['rows']);after=inventory(rows);assert before.keys()==after.keys(),'Read inventory changed'
         for k,r in before.items():
-            rr=after[k];assert r['record_count']==rr['record_count']
-            assert [(f['sequence'],f['qstart'],f['qend']) for f in r['fragments']]==[(f['sequence'],f['qstart'],f['qend']) for f in rr['fragments']]
+            rr=after[k];assert r['records']==rr['records']
+            assert r['fragments']==rr['fragments']
         report.update(r3_inventory_identical=True,r3_extracted_bases_identical=True)
     (out/'verification.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     print('OUTPUT_VERIFICATION_PASS',json.dumps(report),flush=True)

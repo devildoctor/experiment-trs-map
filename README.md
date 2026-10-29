@@ -12,14 +12,15 @@
 
 ## Versions and branches
 
-**当前分支：`feature/d1s80-terminal-unit-evidence`** — 推荐研究版本：增加独立分子验证的右端模板；终端模式开启后CN全部保留NA。
+**当前分支：`fix/vntr-review-20261029`** — 当前修复版本：基于终端模板分支，修复歧义标记、目录校验、空证据导出、分子命名空间与阈值显示。终端模式开启后CN全部保留NA。
 
 | 分支 | 用途 |
 |---|---|
+| [review-fixes](https://github.com/devildoctor/experiment-trs-map/tree/fix/vntr-review-20261029) | 当前修复、回归测试和中文代码解读 |
 | [vntr-point-graph](https://github.com/devildoctor/experiment-trs-map/tree/vntr-point-graph) | 基础点图、STR图及多k值VNTR图 |
 | [joint-support-unit-decomposition](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-joint-support-unit-decomposition) | 初版联合支持与候选单元分解 |
 | [joint-units-complete](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-joint-units-complete) | 完整事件证据及所有路径的单元注释 |
-| [terminal-unit-evidence](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-terminal-unit-evidence) | 经分子验证的右端模板，建议从此分支开始 |
+| [terminal-unit-evidence](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-terminal-unit-evidence) | 经分子验证的右端模板，保留修复前版本 |
 
 各分支保存独立开发阶段；旧分支不具备后续分支的全部功能。仓库只提供程序、测试和目录配置，不提供真实 BAM、参考 FASTA 或逐分子分析结果。
 
@@ -28,7 +29,7 @@
 需要 Python 3.11+、samtools，以及图布局使用的 Graphviz (`dot` / `neato`)。锚定模块依赖固定版本的 edlib 和 pyahocorasick。
 
 ```bash
-git clone --branch feature/d1s80-terminal-unit-evidence https://github.com/devildoctor/experiment-trs-map.git vntr-point-graph
+git clone --branch fix/vntr-review-20261029 https://github.com/devildoctor/experiment-trs-map.git vntr-point-graph
 cd vntr-point-graph
 conda create -n vntr-point-graph -c conda-forge -c bioconda python=3.11 samtools graphviz pip
 conda activate vntr-point-graph
@@ -58,7 +59,7 @@ bamdata_by_locus/<locus>/<sample>/<HiFi|ONT|ONTUL>/<name>.<locus>.bam
 BED第4列使用 `ID=...;MOTIFS=...;REPEAT_START=...;REPEAT_END=...;BOUNDARY=confirmed`。
 第2、3列是搜索窗口，重复区必须位于窗口内。`confirmed` 是输入目录的声明，不是程序新提供的实验验证。不能为凑整数单元而裁剪端部。
 
-分子键为 `[sample, namespace, read_name]`。同一分子跨BAM、跨平台重复出现只计一次；平台小计可能重叠。主/补充记录不会拼接成未观测的完整序列。
+主图、dBG、read-view、structure/summary 的分子键统一为 `[sample, namespace, read_name]`。`namespace` 优先取 `--sources` 的显式配置，否则取该记录 RG 对应的 LB，缺失时为空；旧结果缺 namespace 时也按空值兼容。BAM 路径和平台不自动成为 namespace。同一分子跨BAM、跨平台重复出现只计一次；平台小计可能重叠。主/补充记录不会拼接成未观测的完整序列。
 
 ## Usage
 
@@ -91,14 +92,16 @@ python scripts/vntrgraph.py --dbg-view --evidence-dir "$RUN/pointgraph/D1S80" \
 python tests/validate_dbg.py "$RUN/dbg/D1S80"
 ```
 
-边来自真实连续k+1-mer。支持视图要求同一样本至少3个独立分子；被过滤的路径拆段，不补桥。k是图上下文长度，不是重复单元长度。完整语义和输出见 [VNTR_DBG.md](VNTR_DBG.md)。
+边来自真实连续k+1-mer。支持视图由 `--min-support` 控制（默认3），要求同一样本内的独立分子数达标；被过滤的路径拆段，不补桥。k是图上下文长度，不是重复单元长度。完整语义和输出见 [VNTR_DBG.md](VNTR_DBG.md)。
 
 ### Scenario 3: joint branch evidence and repeat units
 
 ```bash
 python scripts/vntrdbg_analysis.py --dbg-dir "$RUN/dbg/D1S80" \
-  --pointgraph-dir "$RUN/pointgraph/D1S80" --out "$RUN/joint-units" --k 21 33
+  --pointgraph-dir "$RUN/pointgraph/D1S80" --out "$RUN/joint-units" --k 21 33 --branch-min-support 3
 ```
+
+`--branch-min-support` 是本阶段定义分支的独立门槛，默认3，不会自动继承建图门槛；实际值写入 `manifest.json`。
 
 仅接受可核对来源哈希的冻结D1S80输入。连续跨分支支持要求一个观测路径覆盖完整有序区间，不能把不同片段的票相加当作联合支持。完整候选匹配要求双侧锚定及整条序列精确一致。详见 [VNTR_DBG_ANALYSIS.md](VNTR_DBG_ANALYSIS.md)。
 
@@ -145,7 +148,7 @@ python tests/integration_synthetic.py
 
 真实数据运行应保存源码提交、输入哈希、参考身份、参数、调度日志和独立验收结果。Slurm模板位于 `slurm/`，要求先准备其指定的源码快照及校验清单，不能直接在登录节点运行分析。
 
-终端功能分支已通过186项单元测试及独立D1S80验收：199条冻结路径、8条候选；共同末端模板由59个独立分子支持。8候选的unknown均为15→0，主注释前缀、原始序列、边界及联合支持保持不变。C10完整单元26→27，CN仍为NA。此结果针对已记录的冻结数据，不代表任意输入的预期结果。
+修复前的终端功能分支已通过186项单元测试及独立D1S80验收：199条冻结路径、8条候选；共同末端模板由59个独立分子支持。8候选的unknown均为15→0，主注释前缀、原始序列、边界及联合支持保持不变。C10完整单元26→27，CN仍为NA。此结果针对已记录的冻结数据，不代表任意输入的预期结果。
 
 ## Interpretation and limitations
 
@@ -157,6 +160,9 @@ python tests/integration_synthetic.py
 - 当前测试证明实现与产物契约，不构成人群分型准确率或临床性能验证。
 
 ## Documentation
+
+- [本次修复与验证](docs/CODE_FIXES_20261029.zh-CN.md)
+- [详细中文代码解读](docs/CODE_WALKTHROUGH.zh-CN.md)、[原始检查记录](docs/CODE_REVIEW_20261029.zh-CN.md)
 
 - [完整方法与历史说明](METHODS.md)
 - [锚定与来源规则](ANCHOR_UPDATE.md)

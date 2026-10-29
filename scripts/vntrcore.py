@@ -28,6 +28,7 @@ def compact(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+# Read 表示一条可追溯的实际分子切片；同名读段是否独立由样本和 namespace 共同决定。
 @dataclass(frozen=True)
 class Read:
     name: str
@@ -57,6 +58,7 @@ class Read:
         return self.platforms or (self.platform,)
 
 
+# Token 是输入序列区间的注释：模板可以近似匹配，但 exact_bases 始终保留输入碱基。
 @dataclass
 class Token:
     family: str
@@ -75,6 +77,7 @@ class Token:
         return iter((self.family, self.exact_bases))
 
 
+# Allele 在本程序中承载候选序列及证据，类名本身不表示已确认的等位基因。
 @dataclass
 class Allele:
     name: str
@@ -100,6 +103,7 @@ class Allele:
     compound_details: list = field(default_factory=list)
 
 
+# 按独立分子去重；同一分子的序列冲突进入审计记录，不拼接、不取多数掩盖冲突。
 def deduplicate_reads(reads):
     """Never concatenate SEQ; conflicting full observations remain unresolved.
 
@@ -129,6 +133,7 @@ as the same molecule across files/platforms. Original record IDs are retained.
     return result, audit
 
 
+# Myers 位向量计算完整序列的精确编辑距离；长度相同不代表序列相同。
 @lru_cache(maxsize=2048)
 def edit_distance(a, b):
     """Exact end-to-end Levenshtein distance, Myers bit vectors, all lengths.
@@ -170,6 +175,7 @@ class AlignmentUnresolved(ValueError):
     pass
 
 
+# 逐步扩大带宽，只有回溯代价等于精确编辑距离时才接受；超出资源预算显式报未解。
 def align_to_seed(seed, read, band=8, max_cells=6_000_000):
     """Adaptive banded exact traceback, checked against exact distance.
 
@@ -217,6 +223,7 @@ length difference. M consumes both, D seed only, I read only.
     return operations[::-1]
 
 
+# 将一次比对拆成替换、普通 indel 和同聚物 indel；等价位置只作歧义标记。
 def alignment_counts(seed, read):
     counts = dict(substitution=0, insertion=0, deletion=0, homopolymer_indel=0,
                   indel_ambiguity=False)
@@ -236,6 +243,7 @@ def alignment_counts(seed, read):
     return counts
 
 
+# 从真实读段选中心骨架，再由独立分子逐列投票；生成的共识仍属于候选。
 def make_consensus(reads):
     """Deterministic real-read medoid plus one vote per independent molecule.
 
@@ -245,6 +253,7 @@ random sampling, POA claim, or uncalibrated Q weighting is used.
     reads, _ = deduplicate_reads(reads)
     if not reads:
         raise ValueError("consensus_without_independent_molecules")
+    # 有 HiFi 时限制骨架候选来源，但计算中心代价和投票仍使用全部去重分子。
     reliable = [r for r in reads if r.platform == "HiFi"] or reads
     choices = sorted({r.sequence for r in reliable})
     frequencies = Counter(r.sequence for r in reads)
@@ -276,6 +285,7 @@ random sampling, POA claim, or uncalibrated Q weighting is used.
     return "".join(result)
 
 
+# 先以达到支持数的精确序列建种子，再按平台阈值吸收残余读段；并列最佳不强行分配。
 def _candidate_groups(source, minimum):
     exact = defaultdict(list)
     for read in source:
@@ -296,6 +306,7 @@ def _candidate_groups(source, minimum):
     return clusters
 
 
+# 共识前递归拆分有双侧独立支持的变异模式，避免稳定的小变异被多数投票抹去。
 def split_stable_variants(group, minimum):
     """Split repeated residual substitution/indel patterns before consensus.
 
@@ -341,6 +352,7 @@ def split_stable_variants(group, minimum):
     return result
 
 
+# 各样本独立生成候选；相同共识合并来源，候选编号按长度和序列确定。
 def generate_candidates(reads, minimum):
     by_sample, candidates = defaultdict(list), []
     for read in reads:
@@ -376,6 +388,7 @@ def generate_candidates(reads, minimum):
     return candidates
 
 
+# 将每条分子同时与同样本全部候选比较；代价是描述性评分，不是基因型概率。
 def assign_reads(reads, candidates, min_margin=.5):
     assignments = []
     for read in reads:
@@ -401,6 +414,7 @@ def assign_reads(reads, candidates, min_margin=.5):
         unresolved = any(s["status"] == "unresolved" for s in scores.values())
         gap = ranked[1][0] - ranked[0][0] if len(ranked) > 1 else None
         near = [name for cost, name in ranked if cost - ranked[0][0] < min_margin] if ranked else []
+        # 任一候选无法完成评分时保留未解状态，避免因计算失败误选另一个候选。
         if unresolved:
             state, chosen = "unresolved", ""
         elif not ranked:
@@ -416,6 +430,7 @@ def assign_reads(reads, candidates, min_margin=.5):
     return assignments
 
 
+# 主流程：去重、候选发现、联合分配、残余再发现，最后报告支持集合与倍性冲突。
 def call_candidates(reads, minimum=3, ploidy=2, min_margin=.5):
     reads, _ = deduplicate_reads(reads)
     candidates = generate_candidates(reads, minimum)
@@ -437,6 +452,7 @@ def call_candidates(reads, minimum=3, ploidy=2, min_margin=.5):
         allele.read_ids = tuple(sorted(x["molecule_key"] for x in assigned))
         allele.ambiguous_ids = tuple(sorted(x["molecule_key"] for x in assignments
                                             if x["status"] == "ambiguous" and allele.name in x["near_candidates"]))
+        # 平台小计可以重叠；独立分子总数应读取 read_ids，不能把平台支持数相加。
         support = Counter(p for key in allele.read_ids for p in lookup[key].observed_platforms)
         allele.support = dict(support)
         identities = [x["scores"][allele.name]["identity"] for x in assigned]
@@ -478,6 +494,7 @@ def call_candidates(reads, minimum=3, ploidy=2, min_margin=.5):
                         cost += min([reject] + values)
                     combinations_scored.append(dict(candidates=names, cost=cost))
         combinations_scored.sort(key=lambda x: (x["cost"], len(x["candidates"]), x["candidates"]))
+        # 只看到一种序列不等于纯合；候选超过倍性时保留冲突，不强取最大的两个。
         state = ("no_supported_sequence" if not supported else
                  "ploidy_conflict" if len(supported) > ploidy else
                  "one_observed_sequence_not_homozygous" if len(supported) == 1 else "supported_sequence_set_unphased")
@@ -498,6 +515,7 @@ def cluster_reads(reads, minimum):
     return [a for a in call_candidates(reads, minimum)[0] if len(a.read_ids) >= minimum]
 
 
+# 旋转及反向互补归一化只用于家族命名，不改变原始切片的方向或碱基。
 def canonical_motif(sequence):
     return min(s[i:] + s[:i] for s in (sequence, revcomp(sequence)) for i in range(len(s)))
 
@@ -510,6 +528,7 @@ def motif_orientation(template, family):
     return 0, "+"
 
 
+# 参考和候选仅用于提出模板：精确串联片段与周期自相关共同产生待验证字典。
 def discover_motifs(sequences, supplied=()):
     """Propose units and compound blocks; evidence validation is separate."""
     supplied = tuple(dict.fromkeys(tuple(supplied) + tuple(primitive_unit(m) for m in supplied)))
@@ -552,6 +571,7 @@ def discover_motifs(sequences, supplied=()):
     return tuple(selected)
 
 
+# 字典可用性与证据验证分开：目录模板可以可用但未验证，新模板必须有重复上下文支持。
 def motif_dictionary(reference, alleles, reads, supplied, minimum):
     proposed = list(discover_motifs([reference] + [a.sequence for a in alleles], supplied))
     # Nominate observed interruptions from consensus slices, then require raw-molecule evidence.
@@ -575,6 +595,7 @@ def motif_dictionary(reference, alleles, reads, supplied, minimum):
                      for r, hits in evidence for a,b in hits[motif]['context_occurrences']]
         ids = sorted({p['molecule_key'] for p in locations})
         substring_ids = {r.molecule_key for r,hits in evidence if hits[motif]['occurrences']}
+        # 这里按全位点独立分子集合计数；该阈值不同于候选生成的逐样本门槛。
         validated = len(ids) >= minimum
         source = 'catalog' if motif in supplied else 'catalog_primitive' if motif in catalog_templates else 'discovered'
         record = dict(motif=motif, source=source, molecule_ids=ids, read_support=len(ids),
@@ -606,6 +627,7 @@ def cigar_edit(template, exact):
     return "".join(f"{n}{op}" for n,op in ops)
 
 
+# 固定模板相位的动态规划保留最佳和一个备选分解；未知、部分单元不会强凑完整拷贝。
 def decompose(sequence, motifs, level="base", return_details=False, right_terminal_motifs=()):
     """Two best exact-slice paths under explicit fixed template phase.
 
@@ -617,6 +639,7 @@ def decompose(sequence, motifs, level="base", return_details=False, right_termin
     n = len(sequence)
     templates = {primitive_unit(m) if level == 'base' else m for m in motifs}
     templates = tuple(sorted(templates | {revcomp(m) for m in templates}, key=lambda m:(len(m),m)))
+    # 右端专用模板只能解释序列末端，不能被扩展为内部任意位置的模板。
     right_only = set(right_terminal_motifs) - set(templates)
     match_templates = tuple(sorted(set(templates) | right_only, key=lambda m:(len(m),m)))
     dp = TwoPaths(n)
@@ -625,6 +648,7 @@ def decompose(sequence, motifs, level="base", return_details=False, right_termin
         dp.offer(i,i+1,.8 if weak_terminal else 2.,(i,i+1,'UNKNOWN',sequence[i:i+1],'unknown'))
         for motif in match_templates:
             length = len(motif)
+            # 编辑上限只控制模板匹配搜索；后续始终保留实际切片和编辑操作。
             allowed = 0 if length == 1 else 1 if length <= 6 else min(3,max(1,int(length*.10)))
             for width in range(max(1 if length == 1 else 2,length-allowed),length+allowed+1):
                 if i+width > n: continue
@@ -644,25 +668,27 @@ def decompose(sequence, motifs, level="base", return_details=False, right_termin
                 dp.offer(i,n,.8,(i,n,motif,sequence[i:],'partial'))
     audit = dp.audit()
     primary, alternate = dp.trace(), dp.trace(1)
-    alternate_set = set(alternate)
-    def convert(steps):
+    def convert(steps, other_steps):
+        # 主、备选都与对侧方案比较；共享片段不因全局同分而被误标为歧义。
+        other_set = set(other_steps)
         tokens = []
         for start,end,motif,exact,status in steps:
             family = 'UNKNOWN' if status == 'unknown' else canonical_motif(motif)
             phase, orientation = (0,'+') if status == 'unknown' else motif_orientation(motif,family)
             edits = '' if status == 'unknown' else cigar_edit(motif,exact)
-            tied = audit['annotation_ambiguity'] and (start,end,motif,exact,status) not in alternate_set
+            tied = audit['annotation_ambiguity'] and (start,end,motif,exact,status) not in other_set
             if status == 'unknown' and tokens and tokens[-1].status == 'unknown':
                 tokens[-1].exact_bases += exact; tokens[-1].end = end
                 tokens[-1].annotation_ambiguity |= tied
             else:
                 tokens.append(Token(family,exact,start,end,phase,orientation,edits,status,tied,level))
+        # 以重建原序列和逐片段坐标一致性约束所有注释路径。
         assert ''.join(t.exact_bases for t in tokens) == sequence
         assert all(t.exact_bases == sequence[t.start:t.end] for t in tokens)
         return tokens
-    tokens = convert(primary)
+    tokens = convert(primary, alternate)
     audit['metrics'] = base_metrics(tokens)
-    audit['alternative'] = [asdict(t) for t in convert(alternate)] if alternate else []
+    audit['alternative'] = [asdict(t) for t in convert(alternate, primary)] if alternate else []
     audit['alternative_metrics'] = base_metrics(audit['alternative']) if alternate else None
     explained = audit['metrics']['full_unit_fraction'] if n else 0.
     return (tokens, explained, audit) if return_details else (tokens, explained)
@@ -675,6 +701,7 @@ def token_counts(tokens):
                 partial_bases=sum(len(t.exact_bases) for t in tokens if t.status == "partial"))
 
 
+# 基础点图以完整路径签名和出现位置区分节点，主动避免共享局部节点产生假重组路径。
 def build_graph(alleles, left, right):
     """Context nodes shared only by identical complete token paths.
 
@@ -700,6 +727,7 @@ unobserved recombinant paths; display compression is handled separately.
     return nodes,edges,paths
 
 
+# 点图支持来自候选的已分配分子集合；它不等价于每个节点碱基的精确匹配证明。
 def graph_evidence(nodes, edges, paths):
     node_reads, edge_reads = defaultdict(set), defaultdict(set)
     for allele,ids in paths:
@@ -723,6 +751,7 @@ def graph_evidence(nodes, edges, paths):
                 contract="Report only saved full paths; support is unique molecules, not traversals.")
 
 
+# 候选内部的局部 k-mer 连边覆盖率只作辅助证据，不能证明全长相位或拷贝数。
 def dbg_evidence(allele, reads, destination=None):
     """Directed exact-string k-mers; evidence only, never prune/invent paths."""
     selected = [r for r in reads if r.molecule_key in allele.read_ids]

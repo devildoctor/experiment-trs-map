@@ -37,10 +37,12 @@ def tsv(path, rows, fields=None):
                              for key, value in row.items() if key in fields})
 
 
+# 按原序列方向依次取 k-mer，重复出现的位置仍保留在路径中。
 def words(sequence, k):
     return [sequence[i:i+k] for i in range(len(sequence)-k+1)]
 
 
+# 原始图只连接输入序列中真实相邻的 k-mer；REF/CAND 参与拓扑但不增加分子票。
 def raw_graph(records, k):
     """Edges must occur in a real input k+1-mer; overlap alone is insufficient."""
     nodes, edges, paths = set(), set(), {}
@@ -57,6 +59,7 @@ def raw_graph(records, k):
         nodes.update(path)
         links = set(zip(path,path[1:]))
         edges.update(links)
+        # 用集合去重：同一分子多次经过节点或边，独立支持仍只记一次。
         if record['kind']=='observed':
             key=record['molecule_key']
             meta=molecules.setdefault(key, dict(sample=record['sample'],platforms=set()))
@@ -70,6 +73,7 @@ def raw_graph(records, k):
     return dict(nodes=nodes,edges=edges,paths=paths,node_support=ns,edge_support=es,molecules=molecules)
 
 
+# 支持门槛按单个样本计算；过滤断点必须拆成片段，不能把两端重新连起来。
 def supported_records(records, raw, k, minimum):
     """Keep edges supported by >=minimum unique molecules in at least one sample.
 
@@ -103,6 +107,7 @@ def supported_records(records, raw, k, minimum):
             intervals.append((start,len(path)))
         for index,(a,b) in enumerate(intervals,1):
             full=a==0 and b==len(path)
+            # k-mer 索引区间 [a,b) 对应碱基区间 [a,b+k-1)。
             seq=record['sequence'][a:b+k-1]
             item=dict(record, id=record['id'] if full else f"{record['id']}_F{index:03}",
                       parent_id=record['id'],parent_start=a,parent_end=b+k-1,
@@ -113,7 +118,8 @@ def supported_records(records, raw, k, minimum):
     return retained, keep_nodes, keep_edges
 
 
-def compact_graph(records, raw, k, locus, view):
+# 将无分支链压缩为精确 unitig，同时保留所有输入路径的起止位置。
+def compact_graph(records, raw, k, locus, view, minimum=3):
     incoming,outgoing=defaultdict(set),defaultdict(set)
     for a,b in raw['edges']:
         outgoing[a].add(b)
@@ -164,6 +170,7 @@ def compact_graph(records, raw, k, locus, view):
                 raise AssertionError('Compaction crossed a path endpoint or branch')
             route.append(name)
             i+=len(chain)
+        # 相邻 unitig 重叠 k-1 bp，重建时只追加后续节点的新碱基。
         result=nodes[route[0]]['sequence']+''.join(nodes[n]['sequence'][k-1:] for n in route[1:])
         assert result==record['sequence']
         paths.append(dict(record,walk=route,sequence_sha256=digest(result)))
@@ -185,19 +192,23 @@ def compact_graph(records, raw, k, locus, view):
                     eplatform[edge][platform].add(path['molecule_key'])
     # Platform support uses actual paths across the object, not every platform
     # ever associated with that molecule elsewhere in the locus.
+    # 平台小计可能重叠；分样本和总支持均来自独立分子集合。
     def evidence(keys, kind, obj):
         platforms=nplatform[obj] if kind=='node' else eplatform[obj]
+        samples=dict(sorted(Counter(raw['molecules'][key]['sample'] for key in keys).items()))
         return dict(molecule_ids=sorted(keys),molecule_support=len(keys),
-                    sample_support=dict(sorted(Counter(raw['molecules'][key]['sample'] for key in keys).items())),
+                    sample_support=samples,max_sample_support=max(samples.values(),default=0),
                     platform_support={p:len(v) for p,v in sorted(platforms.items())})
     for n,value in nodes.items():
         value.update(evidence(ns[n],'node',n),origins=sorted(nt[n]))
     links=[dict(source=a,target=b,overlap=k-1,origins=sorted(et[a,b]),**evidence(es[a,b],'edge',(a,b)))
            for a,b in sorted(edges)]
     return dict(version=VERSION,locus=locus,k=k,view=view,overlap=k-1,
+                min_support=minimum,support_scope='max_unique_molecules_within_one_sample',
                 encoding='reference_oriented_exact_string',nodes=nodes,edges=links,paths=paths)
 
 
+# GFA 的 S 为精确序列，L 保存重叠，P 保存实际输入路径；不能枚举拓扑来宣称等位基因。
 def write_gfa(path, graph):
     k=graph['k']
     lines=[f"H\tVN:Z:1.0\tgm:Z:{VERSION}\tkk:i:{k}\tvw:Z:{graph['view']}"]
@@ -217,8 +228,10 @@ def color(node):
     return '#cee9df' if node['platform_support'].get('HiFi',0)>=2 else '#dce7f6'
 
 
+# Graphviz 仅负责布局，节点尺寸不代表 bp 长度，边粗细仅用于展示支持量。
 def topology(path, graph):
     count=len(graph['nodes'])
+    minimum=graph.get('min_support',3)
     engine='dot' if count<=450 else 'neato'
     # VPSC works with the server Graphviz build and keeps all graph objects.
     layout='overlap=false, splines=true' if engine=='dot' else 'overlap=vpsc, splines=line, maxiter=100'
@@ -226,7 +239,7 @@ def topology(path, graph):
            f'graph [bgcolor="white", {layout}, outputorder=edgesfirst, pad=0.4, start=42];',
            'node [shape=box, style="rounded,filled", fontname="monospace", fontsize=9];',
            'edge [arrowsize=0.55, fontname="sans", fontsize=8];',
-           f'label="{graph["locus"]} k={graph["k"]} {graph["view"]} | S=exact unitig; L overlap={graph["overlap"]} bp; ms=unique molecules; node size not bp scale";',
+           f'label="{graph["locus"]} k={graph["k"]} {graph["view"]} | S=exact unitig; L overlap={graph["overlap"]} bp; ms=unique molecules; edge color=max sample support >= {minimum}; edge width=total ms; node size not bp scale";',
            'labelloc=t;']
     if engine=='dot':
         lines.append('rankdir=LR;')
@@ -237,9 +250,11 @@ def topology(path, graph):
         lines.append(f'{name} [label={json.dumps(label)}, fillcolor="{color(n)}", tooltip={json.dumps(seq)}];')
     for e in graph['edges']:
         support=e['molecule_support']
-        line_color='#b8c0ca' if support<3 else '#47566e'
+        # 颜色使用同一样本最大独立支持和本次门槛，不能跨样本凑票。
+        sample_max=max(e['sample_support'].values(),default=0)
+        line_color='#b8c0ca' if sample_max<minimum else '#47566e'
         width=0.6+min(3,math.log2(1+support)*0.45)
-        lines.append(f'{e["source"]} -> {e["target"]} [color="{line_color}", penwidth={width:.2f}, tooltip="ms={support}; overlap={graph["overlap"]}"];')
+        lines.append(f'{e["source"]} -> {e["target"]} [color="{line_color}", penwidth={width:.2f}, tooltip="ms={support}; max_sample_support={sample_max}; min_support={minimum}; overlap={graph["overlap"]}"];')
     lines.append('}')
     dotpath=Path(path).with_suffix('.dot')
     dotpath.write_text('\n'.join(lines)+'\n',encoding='ascii')
@@ -248,6 +263,7 @@ def topology(path, graph):
     graph['layout_options']=layout
 
 
+# 展示明确保存的路径；重复访问同一图节点不等于重复单元拷贝数。
 def paths_svg(path, graph, paths=None, annotations=None):
     paths=graph['paths'] if paths is None else paths
     annotations=annotations or {}
@@ -261,6 +277,7 @@ def paths_svg(path, graph, paths=None, annotations=None):
         body.append(f'<text x="24" y="{y}" font-size="15" font-weight="bold">{escape(title)}</text>')
         y+=18
         tokens=annotations.get(p.get('parent_id',p['id']),[])
+        # 过滤后的片段不能直接套用完整路径的单元坐标。
         if tokens and p.get('filter_complete',True):
             palette=['#dce7f6','#cce5df','#f4ddaf','#e8d4e8','#d5e4bb']
             base=y+8
@@ -299,6 +316,7 @@ def paths_svg(path, graph, paths=None, annotations=None):
     Path(path).write_text(header+''.join(body)+'</svg>\n',encoding='utf-8')
 
 
+# 同步导出拓扑、逐路径图、GFA、JSON 和独立支持表。
 def write_outputs(folder, graph, annotations):
     suffix='' if graph['view']=='all_evidence' else '.supported'
     stem=f"{graph['locus']}.k{graph['k']}{suffix}"
@@ -316,9 +334,10 @@ def write_outputs(folder, graph, annotations):
     tsv(folder/(stem+'.support.tsv'),
         [dict(object='node',id=n,**v) for n,v in graph['nodes'].items()]+
         [dict(object='edge',id=e['source']+'>'+e['target'],**e) for e in graph['edges']],
-        ['object','id','molecule_support','sample_support','platform_support','molecule_ids','origins'])
+        ['object','id','molecule_support','sample_support','platform_support','molecule_ids','origins','max_sample_support'])
 
 
+# 这些指标比较图压缩和证据保留程度，不是分型准确率。
 def metrics(raw, graph, kept_nodes, kept_edges, records, k):
     incoming,outgoing=defaultdict(set),defaultdict(set)
     for a,b in kept_edges:
@@ -350,6 +369,7 @@ def metrics(raw, graph, kept_nodes, kept_edges, records, k):
     return result
 
 
+# 每个 k 独立生成全证据图和支持图，二者都保留各自的明确路径。
 def build_all(records, annotations, locus, ks, out, minimum=3):
     comparison=[]
     for k in ks:
@@ -357,25 +377,27 @@ def build_all(records, annotations, locus, ks, out, minimum=3):
         folder.mkdir()
         raw=raw_graph(records,k)
         kept,kn,ke=supported_records(records,raw,k,minimum)
-        graph=compact_graph(records,raw,k,locus,'all_evidence')
+        graph=compact_graph(records,raw,k,locus,'all_evidence',minimum)
         print(f'k={k}: {len(graph["nodes"])} compact nodes, {len(graph["edges"])} links, {len(graph["paths"])} paths',flush=True)
         write_outputs(folder,graph,annotations)
         filtered_raw=raw_graph(kept,k)
-        filtered=compact_graph(kept,filtered_raw,k,locus,'supported')
+        filtered=compact_graph(kept,filtered_raw,k,locus,'supported',minimum)
         write_outputs(folder,filtered,annotations)
         row=metrics(raw,graph,kn,ke,records,k)
-        row.update(supported_compact_nodes=len(filtered['nodes']),supported_compact_edges=len(filtered['edges']),
+        row.update(min_support=minimum,supported_compact_nodes=len(filtered['nodes']),supported_compact_edges=len(filtered['edges']),
                    exported_paths=len(graph['paths']),supported_exported_fragments=len(filtered['paths']),
                    supported_candidate_full_paths=sum(p['kind']=='candidate' and p.get('filter_complete',True) for p in filtered['paths']))
         comparison.append(row)
+        # 短于 k 的输入无法形成该图节点，单独列出以避免静默遗漏。
         tsv(folder/'excluded_short_paths.tsv',[dict(id=r['id'],length=len(r['sequence']),reason='shorter_than_k') for r in records if len(r['sequence'])<k],['id','length','reason'])
-        save_json(folder/'graph_semantics.json',dict(version=VERSION,k=k,node='exact oriented unitig, not a repeat unit',edge=f'exact {k-1}-bp overlap observed in an input path',support='unique observed molecules; reference/candidate do not add molecule support',supported_view=f'at least {minimum} molecules within one sample per raw node/edge; reference retained explicitly; all interrupted paths split',path='exact reference, observed fragment or uncertain candidate; no topology-enumerated allele',reference_context='catalog repeat interval only; no synthetic flanks attached',orientation='stored BAM sequence on target reference orientation; no canonical reverse-complement collapse',compaction='node-disjoint nonbranching chains; all path endpoints preserved',scope='locus union; sample and platform evidence retained; local support does not phase a full haplotype'))
+        save_json(folder/'graph_semantics.json',dict(version=VERSION,k=k,min_support=minimum,support_scope='max_unique_molecules_within_one_sample',node='exact oriented unitig, not a repeat unit',edge=f'exact {k-1}-bp overlap observed in an input path',support='unique observed molecules; reference/candidate do not add molecule support',supported_view=f'at least {minimum} molecules within one sample per raw node/edge; reference retained explicitly; all interrupted paths split',path='exact reference, observed fragment or uncertain candidate; no topology-enumerated allele',reference_context='catalog repeat interval only; no synthetic flanks attached',orientation='stored BAM sequence on target reference orientation; no canonical reverse-complement collapse',compaction='node-disjoint nonbranching chains; all path endpoints preserved',scope='locus union; sample and platform evidence retained; local support does not phase a full haplotype'))
         save_json(folder/'metrics.json',row)
     tsv(out/'k_comparison.tsv',comparison)
     save_json(out/'k_comparison.json',comparison)
     return comparison
 
 
+# 命令行入口：检查参数及输出目录，再冻结输入并逐 k 构图。
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence-dir',type=Path,required=True)

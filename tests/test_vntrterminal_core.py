@@ -38,12 +38,21 @@ class RightTerminalTests(unittest.TestCase):
         # Complete tokens and both-path audits from base commit 2081705.
         sequences = ['', MOTIF, MOTIF * 2, MOTIF + MOTIF[:15],
                      MOTIF[:8] + 'A' + MOTIF[8:], 'N' + MOTIF + 'NN', 'CAGCAGCAG']
+        # 逐字段审计确认：仅第 6 个样例的两个备选 token 歧义标记由 False 修正为 True。
+        corrected_ambiguity = {(5, 0), (5, 1)}
         outputs = []
-        for sequence in sequences:
+        for case_index, sequence in enumerate(sequences):
             result = decompose(sequence, [MOTIF, 'CAG'], return_details=True)
             self.assertEqual(result, decompose(sequence, [MOTIF, 'CAG'],
                              return_details=True, right_terminal_motifs=()))
-            outputs.append(serialized(result))
+            snapshot = serialized(result)
+            for token_index, token in enumerate(snapshot[2]['alternative']):
+                self.assertIs(token['annotation_ambiguity'],
+                              (case_index, token_index) in corrected_ambiguity)
+            # 单独验证修正值后，仅将该字段投影回旧值，保留其余全部字段的旧快照契约。
+            snapshot[2] = dict(snapshot[2], alternative=[dict(token, annotation_ambiguity=False)
+                               for token in snapshot[2]['alternative']])
+            outputs.append(snapshot)
         digest = sha256(json.dumps(outputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         self.assertEqual(digest, '0b9bcd108bea5ebff1510b199404a6cf6b4cdb41302e73fc8094841d48566f26')
 

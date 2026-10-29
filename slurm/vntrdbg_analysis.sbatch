@@ -12,6 +12,7 @@ set -euo pipefail
 
 RUN_DIR="${RUN_DIR:?Set RUN_DIR to a new, versioned run directory}"
 BASE_RUN="${BASE_RUN:?Set BASE_RUN to the frozen D1S80 graph run}"
+BRANCH_MIN_SUPPORT="${BRANCH_MIN_SUPPORT:-3}"
 PY=/home/data/user/stzhu/miniconda3/bin/python3
 export PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 export PYTHONPATH="$RUN_DIR/source/scripts:$RUN_DIR/source/.deps/vntr-anchors"
@@ -28,7 +29,7 @@ mkdir -p "$RUN_DIR/acceptance" "$RUN_DIR/results"
 "$PY" scripts/vntrdbg_analysis.py \
   --dbg-dir "$BASE_RUN/results/dbg/D1S80" \
   --pointgraph-dir "$BASE_RUN/results/pointgraph/D1S80" \
-  --out "$RUN_DIR/results/D1S80" --k 21 33 \
+  --out "$RUN_DIR/results/D1S80" --k 21 33 --branch-min-support "$BRANCH_MIN_SUPPORT" \
   > "$RUN_DIR/acceptance/analysis.log" 2>&1
 "$PY" tests/validate_vntrdbg_analysis.py "$RUN_DIR/results/D1S80" \
   "$BASE_RUN/results/dbg/D1S80/input_paths.json" \
