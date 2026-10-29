@@ -7,6 +7,7 @@ from functools import lru_cache
 from dataclasses import dataclass
 
 
+# 求字符串的最短精确周期；这是序列性质，不自动等于生物学重复单元定义。
 @lru_cache(maxsize=4096)
 def primitive_unit(sequence):
     for width in range(1, len(sequence) + 1):
@@ -15,6 +16,7 @@ def primitive_unit(sequence):
     return sequence
 
 
+# 枚举循环旋转和反向互补用于家族比较；分解时仍需遵守具体模板相位。
 @lru_cache(maxsize=4096)
 def forms(sequence):
     reverse = sequence.translate(str.maketrans('ACGT', 'TGCA'))[::-1]
@@ -32,6 +34,7 @@ def definition(sequence):
                 family=canonical(sequence), phase_policy='fixed_template_phase')
 
 
+# 从局部精确串联重复中提出模板；重叠命中按跨度优先保留，未穷举所有可能分解。
 def exact_runs(sequence, max_period=100, min_period=1, min_copies=3, min_span=12):
     """Local primitive exact repeats; coordinates are 0-based, half-open."""
     hits = []
@@ -67,6 +70,7 @@ def exact_occurrences(sequence, motif):
     return sorted(hits)
 
 
+# 单个子串命中不够：须相邻同家族重复，或被两个直接相邻的单元夹住。
 def context_support(sequence, motifs):
     """Exact observations count only in tandem or between two adjacent units.
 
@@ -101,6 +105,7 @@ class PathState:
     step: tuple
 
 
+# 切片有向无环图中每个终点只保留两个不同前缀，用于最佳分解及一个备选方案。
 class TwoPaths:
     """Two distinct paths in the slice DAG; scores are costs, not probabilities."""
     def __init__(self, length):
@@ -130,6 +135,7 @@ class TwoPaths:
             node = node.previous
         return list(reversed(steps))
 
+    # 分数差为描述性代价差；发现并列即标歧义，但不会枚举全部并列方案。
     def audit(self):
         best = self.paths[-1][0].score
         second = self.paths[-1][1].score if len(self.paths[-1]) > 1 else None
@@ -140,6 +146,7 @@ class TwoPaths:
                     phase_policy='fixed_template_phase', alternative_limit=1)
 
 
+# 完整、编辑匹配、部分及未知碱基分别统计；full_unit_fraction 不代表序列正确率。
 def base_metrics(tokens):
     result = dict(full_units=0, exact_full_bases=0, edited_full_bases=0,
                   partial_bases=0, unknown_bases=0)
@@ -159,6 +166,7 @@ def base_metrics(tokens):
     return result
 
 
+# 目录复合单元和实际观察到的复合排列分别报告；不同目录模式可能重叠，不能相加。
 def compound_annotations(tokens, catalog=()):
     """Catalog blocks must align to complete base tokens; each pattern has its own count.
 
@@ -186,6 +194,7 @@ def compound_annotations(tokens, catalog=()):
     return result
 
 
+# 在完整 token 序列上找重复的混合模式，遇到 UNKNOWN 或 partial 不跨越连接。
 def observed_compounds(tokens, max_period=12):
     """Mixed patterns of whole observed base tokens; never cross UNKNOWN/partial."""
     rows = [t if isinstance(t, dict) else vars(t) for t in tokens]

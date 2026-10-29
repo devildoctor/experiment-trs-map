@@ -51,7 +51,7 @@ def metadata(row, source):
     check(row['count_scope'] == scope, 'wrong unit count scope')
 
 
-def expected_queries(records, ks):
+def expected_queries(records, ks, minimum=3):
     """Rebuild support from k+1 strings, then union overlapping signature intervals."""
     expected = {}
     for k in ks:
@@ -64,7 +64,7 @@ def expected_queries(records, ks):
             elif record['kind'] == 'observed':
                 for edge in edges:
                     support[edge][record['sample']].add(record['molecule_key'])
-        keep.update(edge for edge, samples in support.items() if any(len(v) >= 3 for v in samples.values()))
+        keep.update(edge for edge, samples in support.items() if any(len(v) >= minimum for v in samples.values()))
         outgoing, incoming = Counter(e[:-1] for e in keep), Counter(e[1:] for e in keep)
         for record in records:
             if record['kind'] != 'candidate':
@@ -126,7 +126,10 @@ def validate_joint(records, manifest, out):
     summaries = indexed(rows(out/'joint_support.tsv'), 'query_id', 'support')
     events = indexed(rows(out/'events.tsv'), 'query_id', 'events')
     event_ids = indexed(list(events.values()), 'event_id', 'event ids')
-    expected = expected_queries(records, manifest['k'])
+    # 旧结果未记录门槛时沿用历史默认 3；新结果必须按实际参数重建分支。
+    minimum = manifest.get('branch_min_support', 3)
+    check(type(minimum) is int and minimum >= 1, 'invalid branch support threshold')
+    expected = expected_queries(records, manifest['k'], minimum)
     check(set(queries) == set(summaries) == set(events) == set(expected), 'query set is incomplete')
     evidence = rows(out/'joint_molecules.tsv')
     flattened = [dict(query_id=r['query_id'], event_id=r['query_id'], sample=r['sample'],
@@ -413,6 +416,8 @@ def main(out, input_file):
     check(manifest['joint_query_count'] == queries and manifest['unit_row_count'] == unit_rows, 'wrong manifest output counts')
     print(json.dumps(dict(status='PASS', queries=queries, molecule_query_rows=molecule_rows,
                           unit_rows=unit_rows, input_paths=len(records),
+                          branch_min_support=manifest.get('branch_min_support', 3),
+                          branch_min_support_source='recorded manifest' if 'branch_min_support' in manifest else 'inferred legacy default',
                           candidates=sum(r['kind'] == 'candidate' for r in records))))
 
 

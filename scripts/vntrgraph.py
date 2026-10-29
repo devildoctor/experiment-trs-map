@@ -28,6 +28,7 @@ import vntrstrgraph
 
 COLORS = ("#4477AA", "#EE7733", "#228833", "#AA3377", "#66CCEE", "#CCBB44")
 
+# 搜索窗口与重复区边界分开保存；BOUNDARY=confirmed 是目录声明，不是运行中新验证。
 @dataclass(frozen=True)
 class Locus:
     name: str
@@ -82,6 +83,38 @@ class IndexedFastaReference:
         return b"".join(parts).decode("ascii").upper()
 
 
+def validate_locus_id(name):
+    if name in {'.', '..'} or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        raise ValueError(f'Invalid locus ID: {name}')
+
+
+# 目录解析和直接调用均检查位点名；解析符号链接后，目标必须严格位于输出根目录内。
+def locus_output_dir(root, name):
+    validate_locus_id(name)
+    root = Path(root).resolve()
+    destination = (root/name).resolve()
+    if destination == root or not destination.is_relative_to(root):
+        raise ValueError(f'Locus output is outside output root: {name}')
+    return destination
+
+
+# 所有视图共用来源表解析；显式空 namespace 仍有效，不回退到 BAM 的 LB。
+def load_source_namespaces(path):
+    if path is None:
+        return {}
+    path = Path(path)
+    namespaces = {}
+    with path.open(encoding='utf-8', newline='') as handle:
+        for row in csv.DictReader(handle, delimiter='\t'):
+            bam = Path(row['bam'])
+            key = str((bam if bam.is_absolute() else path.parent/bam).resolve())
+            if key in namespaces:
+                raise ValueError('Duplicate BAM in sources manifest')
+            namespaces[key] = row['namespace']
+    return namespaces
+
+
+# BED 使用 0-based 半开坐标；重复区必须完整包含于给定搜索窗口。
 def read_catalog(path):
     loci, seen = [], set()
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -94,7 +127,8 @@ def read_catalog(path):
         search_start, search_end = int(a), int(b)
         info = dict(x.split("=",1) for x in meta.split(";") if "=" in x)
         name = info.get("ID",meta)
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or name in seen:
+        validate_locus_id(name)
+        if name in seen:
             raise ValueError(f"Invalid or duplicate locus ID: {name}")
         if ("REPEAT_START" in info) != ("REPEAT_END" in info):
             raise ValueError("REPEAT_START and REPEAT_END must be supplied together")
@@ -116,6 +150,7 @@ def read_catalog(path):
     return loci
 
 
+# 按位点/样本/平台目录及文件名筛选输入，不自动到外部位置补找 BAM。
 def discover_bams(folder: Path, locus: str) -> list[tuple[str, str, Path]]:
     """Read locus/sample/platform or legacy sample/platform BAM layouts."""
     found = []
@@ -132,6 +167,7 @@ def discover_bams(folder: Path, locus: str) -> list[tuple[str, str, Path]]:
     return found
 
 
+# 以下投影和 flank_hit 是兼容辅助函数；当前主流程使用 vntranchors 的多长度锚定。
 def reference_to_query(pos0: int, cigar: str, target: int) -> int | None:
     """CIGAR 投影仅用于侧翼搜索的初始范围，不决定重复边界。"""
     ref, query = pos0, 0
@@ -199,6 +235,7 @@ def flank_hit(flank: str, sequence: str, expected: int | None,
     return best[1], best[2], best[0]
 
 
+# 兼容入口同样转交新的锚定规则，避免测试或外部调用绕过证据检查。
 def extract_sam_records(lines, sample, platform, locus, reference, flank_length,
                         min_mapq, source="", namespace=None, profiles=None):
     """Compatibility entry point with the same audited extraction rules."""
@@ -222,6 +259,7 @@ def source_hashes():
     return {p.name:sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob('vntr*.py')}
 
 
+# 点图以 0M 连接实际序列片段；RC 是已分配独立分子支持，不是重复次数。
 def write_gfa(path,nodes,edges,paths):
     evidence = graph_evidence(nodes,edges,paths)
     node_counts = {x["id"]:x["read_support"] for x in evidence["nodes"]}
@@ -239,6 +277,7 @@ def write_gfa(path,nodes,edges,paths):
     path.with_suffix(".json").write_text(compact(evidence),encoding="utf-8")
 
 
+# 只压缩连续且家族、实际碱基、状态均相同的 token，显示 xN 后仍可精确重建。
 def compress_tokens(tokens):
     runs = []
     for token in tokens:
@@ -251,6 +290,7 @@ def compress_tokens(tokens):
     return runs
 
 
+# SVG 按已保存候选路径逐行绘制，宽度按显示单元数布局，不是实际 bp 比例尺。
 def write_svg(path,locus,alleles,reason=""):
     variants = list(dict.fromkeys((t.family,t.exact_bases,t.status) for a in alleles for t in a.tokens))
     labels = {key:f"U{i+1}" for i,key in enumerate(variants)}
@@ -304,8 +344,9 @@ def write_svg(path,locus,alleles,reason=""):
     path.write_text('\n'.join(svg),encoding="utf-8")
 
 
+# 单个位点主流程：记录来源参数 -> 提取/去重 -> 候选与分配 -> 单元注释 -> 图和审计表。
 def process_locus(locus,args,reference,profiles):
-    destination = args.out/locus.name
+    destination = locus_output_dir(args.out, locus.name)
     destination.mkdir(parents=True,exist_ok=True)
     parameters = dict(version=VERSION,locus=asdict(locus),coordinate_system="0-based_half-open",
                       boundary_shift=0,score_definition="descriptive_edit_cost_not_probability",
@@ -335,6 +376,7 @@ def process_locus(locus,args,reference,profiles):
     with (destination/'anchor_decisions.jsonl').open('w',encoding='utf-8') as decisions:
         for detail in details:
             decisions.write(compact(detail)+'\n')
+    # 先完成分子级去重，再进行候选发现，避免同一 read 跨 BAM/平台重复增加支持。
     reads,dedup = deduplicate_reads(reads)
     write_tsv(destination/'molecules.tsv',list(asdict(reads[0]))+['molecule_key'] if reads else ['molecule_key'],
               [dict(asdict(r),molecule_key=r.molecule_key) for r in reads])
@@ -343,6 +385,7 @@ def process_locus(locus,args,reference,profiles):
     candidates,assignments,genotypes = call_candidates(reads,args.min_support,args.ploidy,args.score_margin)
     write_tsv(destination/'assignments.tsv',['molecule_key','sample','platform','platforms','status','candidate','best','score_gap','near_candidates','scores'],assignments)
     write_tsv(destination/'genotypes.tsv',['sample','ploidy','status','supported_candidates','assignments','combinations','combination_status','phase'],genotypes)
+    # 主图只使用达到独立分子门槛的候选，所有候选仍另存 candidates.tsv。
     alleles = [a for a in candidates if len(a.read_ids) >= args.min_support]
     motifs = motif_dictionary(reference.fetch(locus.chrom,locus.start,locus.end),alleles,reads,locus.motifs,args.min_support)
     write_tsv(destination/'motifs.tsv',['motif','family','source','level','primitive_sequence','repeat_factor','phase_policy','usable','validated','evidence_status','read_support','substring_read_support','molecule_ids','support_positions'],motifs)
@@ -350,6 +393,7 @@ def process_locus(locus,args,reference,profiles):
     compound = tuple(m['motif'] for m in motifs if m['source']=='catalog' and m['level']=='compound')
     supported_families = {m['family'] for m in motifs if m['validated']}
     print(f"{locus.name}: {len(alleles)} supported sequences; motif annotation and graphs",flush=True)
+    # 模板近似匹配仅产生注释；该循环不替换候选序列中的真实碱基。
     for allele in alleles:
         allele.tokens,explained,allele.annotation = decompose(allele.sequence,base,return_details=True)
         allele.compound_details = compound_annotations(allele.tokens,compound)
@@ -366,6 +410,7 @@ def process_locus(locus,args,reference,profiles):
             allele.flags.append('partial_units')
         if any(t.annotation_ambiguity for t in allele.tokens):
             allele.flags.append('annotation_ambiguity')
+        # 此 90% 指局部 k-mer 连边覆盖，不是单元聚合相似度或序列正确率。
         if allele.graph_support < .90:
             allele.flags.append('low_local_graph_support')
         allele.uncertain |= any(x not in {'stable_residual_split','residual_discovery'} for x in allele.flags)
@@ -379,6 +424,7 @@ def process_locus(locus,args,reference,profiles):
         nodes,edges,paths = build_graph(alleles,left,right)
         write_gfa(destination/f'{locus.name}.gfa',nodes,edges,paths)
     write_svg(destination/f'{locus.name}.svg',locus.name,alleles,reason)
+    # 显式 STR 配置走专用表达与单元图；通用细节图另存为 .detail 文件。
     if locus.str_structure:
         str_records = [vntrstr.path_record('REFERENCE', reference.fetch(locus.chrom,locus.start,locus.end),
                        locus.str_structure, kind='reference', coverage='catalog_interval')]
@@ -429,6 +475,7 @@ def process_locus(locus,args,reference,profiles):
     return bool(failures)
 
 
+# 参数校验和输出目录防覆盖完成后，先扫描完整参考，再依次处理选定位点。
 def main():
     parser = argparse.ArgumentParser(description='VNTR point graph with exact sequence and molecule provenance')
     parser.add_argument('run',nargs='?',default='run')
@@ -452,23 +499,22 @@ def main():
         parser.error('Invalid support, anchor, MAPQ, ploidy or score margin')
     if not Path(args.samtools).exists() and not shutil.which(str(args.samtools)):
         parser.error('samtools not found')
-    args.source_namespaces = {}
-    if args.sources:
-        with args.sources.open(encoding='utf-8',newline='') as handle:
-            for row in csv.DictReader(handle,delimiter='\t'):
-                bam = Path(row['bam'])
-                key = str((bam if bam.is_absolute() else args.sources.parent/bam).resolve())
-                if key in args.source_namespaces:
-                    parser.error('Duplicate BAM in sources manifest')
-                args.source_namespaces[key] = row['namespace']
+    try:
+        args.source_namespaces = load_source_namespaces(args.sources)
+    except ValueError as error:
+        parser.error(str(error))
     loci = read_catalog(args.catalog)
     if args.locus:
         loci = [x for x in loci if x.name in args.locus]
         if len(loci) != len(set(args.locus)):
             parser.error('Locus missing from BED')
     for locus in loci:
-        if (args.out/locus.name).exists() and any((args.out/locus.name).iterdir()):
-            parser.error(f'Output already exists: {args.out/locus.name}; choose a new run directory')
+        try:
+            destination = locus_output_dir(args.out, locus.name)
+        except ValueError as error:
+            parser.error(str(error))
+        if destination.exists() and any(destination.iterdir()):
+            parser.error(f'Output already exists: {destination}; choose a new run directory')
     args.out.mkdir(parents=True,exist_ok=True)
     with IndexedFastaReference(args.reference) as reference:
         for locus in loci:
@@ -483,6 +529,7 @@ def main():
     return int(bool(failures))
 
 
+# 统一命令入口按视图参数分派；未指定专用视图时运行基础点图流程。
 if __name__ == '__main__':
     if '--dbg-view' in sys.argv:
         sys.argv.remove('--dbg-view')

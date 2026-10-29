@@ -14,6 +14,7 @@ VERSION = 'd1s80_right_terminal_v1'
 UNIT_BP = 16
 
 
+# 验证样本特异的右端模板：参考可提名，只有合格独立 OBS 可以投票。
 def validate_terminals(records, molecules, decisions, templates, right_flank,
                        chrom, repeat_start, repeat_end, min_support=3):
     """Return candidate rows, per-molecule evidence and accepted sample templates.
@@ -28,6 +29,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
     fixed = set(templates) | {revcomp(m) for m in templates}
     if not fixed or any(len(m) != UNIT_BP for m in fixed):
         raise ValueError('Require original 16-bp inner-repeat templates')
+    # 重复元数据和重复记录先按分子归组，不能增加独立支持数。
     by_molecule, by_decision, observations = defaultdict(list), defaultdict(list), defaultdict(list)
     for row in molecules:
         by_molecule[(row['sample'], row['molecule_key'])].append(row)
@@ -39,6 +41,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
     references = [r for r in records if r['kind'] == 'reference']
     if len(references) != 1 or len(references[0]['sequence']) != repeat_end-repeat_start:
         raise ValueError('Require one reference matching the unchanged catalog interval')
+    # 提名保留精确方向与相位，不把循环移位后的末端合并计票。
     ref_terminal = references[0]['sequence'][-UNIT_BP:]
     nominated = {ref_terminal: {'reference'}}
     nomination_molecules = defaultdict(lambda: defaultdict(set))
@@ -67,6 +70,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
             result['reason'] = 'noncomplete_frozen_anchor_status'
             continue
         # Multiple metadata rows are not extra molecules. Disagreement is rejected.
+        # 同一分子的完整序列、坐标或来源不一致时，整分子退出支持。
         signatures = {(r['sequence'], tuple(r.get('stored_query_interval', [])),
                        tuple(r.get('original_query_interval', [])),
                        tuple(sorted(r.get('source_records', [])))) for r in full}
@@ -79,6 +83,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
                 any(not set(source['source_records']).issubset(r.get('sources', [])) for r in audit)):
             result['reason'] = 'source_records_absent_from_anchor_decision'
             continue
+        # 核对保存的完整 query、切片坐标、原始方向坐标及来源记录。
         verified = []
         for row in stored:
             a, b = int(row['qL']), int(row['qR'])
@@ -102,6 +107,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
         result['terminal_bases'] = terminal
         nominated.setdefault(terminal, set()).add('complete_observed')
         nomination_molecules[terminal][sample].add(key)
+        # 内侧 16 bp 须接近原重复模板，外侧 16 bp 须与真实参考上下文精确一致。
         result['inner_distance'] = min(edit_distance(sequence[-2*UNIT_BP:-UNIT_BP], m) for m in fixed)
         result['outer_exact'] = outer == right_flank
         result['reason'] = ('inner_repeat_not_supported' if result['inner_distance'] > 1 else
@@ -109,6 +115,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
     samples = sorted({r['sample'] for r in records if r['kind'] != 'reference'})
     candidates, evidence, accepted = [], [], defaultdict(dict)
     # Existing exact oriented templates need no new terminal-only transition.
+    # 只有新的、原始周期为 16 bp 的末端才可能成为专用终端模板。
     for terminal, sources in sorted(nominated.items()):
         if len(terminal) != UNIT_BP or set(terminal)-set('ACGT') or terminal in fixed:
             continue
@@ -116,6 +123,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
         family = canonical_motif(terminal)
         phase, orientation = motif_orientation(terminal, family)
         for sample in samples:
+            # 门槛逐样本计算；平台小计可能重叠，不能相加当作总分子数。
             support, platform_support, reasons = set(), defaultdict(set), Counter()
             for (s, key), observation in sorted(assessed.items()):
                 if s != sample:
@@ -147,6 +155,7 @@ def validate_terminals(records, molecules, decisions, templates, right_flank,
                 support_molecules=len(support), platform_counts_json={p: len(v) for p, v in sorted(platform_support.items())},
                 min_support=min_support, status=status, rejection_reasons_json=dict(sorted(reasons.items())),
                 reference_terminal=terminal == ref_terminal, dictionary_version=VERSION))
+            # 接受结果仅供该样本完整区间的右端使用，不扩充普通内部模板字典。
             if status == 'accepted':
                 accepted[sample][terminal] = identifier
     return candidates, evidence, dict(accepted)

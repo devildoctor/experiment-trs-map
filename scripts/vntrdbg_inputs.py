@@ -13,7 +13,7 @@ import subprocess
 
 import vntranchors
 from vntrcore import compact,decompose
-from vntrgraph import IndexedFastaReference,discover_bams,read_catalog
+from vntrgraph import IndexedFastaReference,discover_bams,read_catalog,load_source_namespaces
 from vntrdbg import digest,save_json,tsv
 
 
@@ -22,6 +22,7 @@ def rows(path):
         return list(csv.DictReader(handle,delimiter='\t'))
 
 
+# 将参考区间投影到单条 BAM 记录；跳跃 N 断开片段，内部插入保留真实 query 碱基。
 def intervals(record,start,end):
     """Query intervals bounded by actually aligned bases; N splits the path.
 
@@ -54,6 +55,7 @@ def intervals(record,start,end):
     return found
 
 
+# 从原锚定结果和当前 BAM 提取 REF/OBS/CAND，并保存可复核的输入快照。
 def prepare(args):
     csv.field_size_limit(64*1024*1024)
     models=rows(args.models)
@@ -65,6 +67,7 @@ def prepare(args):
         raise ValueError('Requires a single non-STR locus')
     locus=loci[0]
     params={r['parameter']:r['value'] for r in rows(args.evidence_dir/'parameters.tsv')}
+    # 原目录、参考身份与 BAM 清单必须和锚定阶段一致。
     if params['catalog_sha256']!=sha256(args.catalog.read_bytes()).hexdigest():
         raise ValueError('Evidence catalog does not match requested catalog')
     if params['reference_fai_sha256']!=sha256(Path(str(args.reference)+'.fai').read_bytes()).hexdigest():
@@ -77,15 +80,12 @@ def prepare(args):
         raise ValueError('BAM inventory differs from the anchor extraction')
     decisions={r['molecule_key']:r for r in map(json.loads,(args.evidence_dir/'anchor_decisions.jsonl').read_text().splitlines())}
     complete={r['molecule_key']:r for r in rows(args.evidence_dir/'molecules.tsv')}
+    # 分子键包含样本、来源命名空间及 read 名，避免把重复记录当成独立支持。
     records_by_mol=defaultdict(list)
     audit=[]
-    namespaces={}
     source_table=params.get('sources','None')
-    if source_table not in ('None',''):
-        source_path=Path(source_table)
-        for r in rows(source_path):
-            p=Path(r['bam'])
-            namespaces[str((p if p.is_absolute() else source_path.parent/p).resolve())]=r['namespace']
+    namespaces=load_source_namespaces(None if source_table in ('None','') else source_table)
+    # 完整序列优先沿用双侧锚定切片，当前 BAM 用于核实来源及补充局部证据。
     with IndexedFastaReference(args.reference) as reference:
         refseq=reference.fetch(locus.chrom,locus.start,locus.end)
         for sample,platform,bam in bams:
@@ -106,6 +106,7 @@ def prepare(args):
             provenance.append(dict(molecule_key=key,status='excluded_inconsistent_sequences',anchor_status=decision,paths=[]))
             continue
         emitted=[]
+        # 完整 OBS 必须能在当前某条来源记录的原始 SEQ 中找到精确切片。
         if key in complete:
             c=complete[key]
             seq=c['sequence']
@@ -121,15 +122,18 @@ def prepare(args):
                       anchor_status=decision,boundary_status=locus.boundary_status)
             output.append(item)
             emitted.append(identifier)
+        # 原锚定阶段已有分子冲突时，不降级成局部片段来绕过冲突。
         elif decision in {'unresolved_molecule_conflict','conflicting_complete_observations','inconsistent_record_sequences_or_lengths'}:
             provenance.append(dict(molecule_key=key,status='excluded_anchor_conflict',anchor_status=decision,paths=[]))
             continue
         else:
+            # 局部片段逐条记录提取；不同补充比对不拼接成完整序列。
             fragments={}
             for r in group:
                 if r.sequence=='*' or r.chrom!=locus.chrom or r.flag&(4|256|512|1024) or r.mapq<20 or r.mapq==255:
                     continue
                 for a,b in intervals(r,locus.start,locus.end):
+                    # N 等模糊碱基会断开精确序列路径，片段仍共享原分子身份。
                     for part in re.finditer('[ACGT]+',r.sequence[a:b]):
                         lo,hi=a+part.start(),a+part.end()
                         if hi-lo<2:
@@ -152,6 +156,7 @@ def prepare(args):
         provenance.append(dict(molecule_key=key,status='included' if emitted else 'no_eligible_local_sequence',
                                anchor_status=decision,paths=emitted))
     annotations={}
+    # 候选序列与观测分开存储；候选原有支持数不能转成 OBS 的边支持。
     for c in rows(args.evidence_dir/'audit.tsv'):
         name='CAND_'+c['allele']
         output.append(dict(id=name,kind='candidate',sample=c['sample'],sequence=c['sequence'],
@@ -165,11 +170,13 @@ def prepare(args):
     if motifs:
         tokens,_,_=decompose(refseq,tuple(motifs),return_details=True)
         annotations[output[0]['id']]=[dict(start=t.start,end=t.end,exact_bases=t.exact_bases,family=t.family,status=t.status) for t in tokens]
+    # 路径 ID 必须唯一，单元注释拼接后必须与原序列完全一致。
     if len({r['id'] for r in output})!=len(output):
         raise AssertionError('Path ID collision')
     for name,tt in annotations.items():
         seq=next(r['sequence'] for r in output if r['id']==name)
         assert ''.join(t['exact_bases'] for t in sorted(tt,key=lambda t:t['start']))==seq
+    # 保存输入、来源及哈希，后续 D1S80 分析从这份冻结输入继续。
     save_json(args.out/'input_paths.json',output)
     save_json(args.out/'motif_annotations.json',annotations)
     tsv(args.out/'input_audit.tsv',audit)

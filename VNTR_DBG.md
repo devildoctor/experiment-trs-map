@@ -26,7 +26,7 @@ other loci retain their existing paths pending a structural assessment.
   reference and candidates add zero observed-molecule support.
 * Molecule support is a set, not traversal count. Platform counts may overlap.
   Every node/edge carries sample/platform support in the JSON/TSV sidecar.
-* `.supported` retains raw nodes/edges supported by at least 3 independent
+* `.supported` retains raw nodes/edges supported by at least `--min-support` (default 3) independent
   molecules within one sample. REF is retained as labeled context. Observed
   and candidate paths are split at removed nodes/edges; no bridge or complete
   path is fabricated. All evidence remains in the unsuffixed graph.
@@ -45,6 +45,8 @@ The `.supported.*` files and `paths-svg.supported/` follow the same contract.
 to molecule sets. `motif_annotations.json` preserves existing candidate token
 coordinates, exact bases and ambiguity. Annotation colors identify exact
 slices; a motif can cross a node boundary. OBS paths are not newly motif-called.
+
+Each graph records its actual `min_support` and per-sample support rule. Edge color compares the maximum within-sample molecule support with this threshold; line width and molecule labels still describe total distinct molecules. REF context can remain below threshold.
 
 All SVG node sizes are schematic. Labels show sequence length and molecule
 support; full sequence is in GFA/JSON and SVG tooltips. Raw graphs above 450

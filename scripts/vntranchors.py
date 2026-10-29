@@ -15,6 +15,7 @@ import subprocess
 
 from vntrcore import DNA, Read, compact, revcomp
 
+# 多长度侧翼共同验证边界；这些阈值属于锚定规则，不是序列正确率或基因型置信度。
 LENGTHS = (150, 250, 350, 500)
 IDENTITY = {'HiFi': .90, 'ONT': .80, 'ONTUL': .80}
 OBSERVED_FRACTION = .90
@@ -36,6 +37,7 @@ def canonical(kmer):
     return min(kmer, revcomp(kmer))
 
 
+# 相邻滑窗常共享碱基；独立定位证据要求两个 31-mer 互不重叠。
 def nonoverlapping(positions):
     chosen = []
     for pos in sorted(positions):
@@ -44,6 +46,7 @@ def nonoverlapping(positions):
     return chosen
 
 
+# ALT 等价只接受显式坐标表，并逐碱基核验；不能仅凭 contig 名含 alt 就忽略重复。
 def load_equivalences(path, reference):
     """Only explicit, documented, base-identical coordinate blocks may collapse.
 
@@ -70,6 +73,7 @@ def load_equivalences(path, reference):
     return rows
 
 
+# 将完全落入已验证等价块的坐标归到主参考，负链同时转换方向与区间起点。
 def normalized_position(chrom, pos, blocks, length=1):
     for block in blocks:
         if chrom==block['alt_contig'] and block['alt_start']<=pos and pos+length<=block['alt_end']:
@@ -81,6 +85,7 @@ def normalized_position(chrom, pos, blocks, length=1):
     return chrom,pos,False
 
 
+# 在完整参考的所有 contig 中检查侧翼 31-mer 唯一性，再给各长度模板分级。
 def reference_profiles(path, loci, reference, lengths=LENGTHS, equivalences=()):
     """Count every canonical candidate 31-mer over every reference contig.
 
@@ -131,6 +136,7 @@ def reference_profiles(path, loci, reference, lengths=LENGTHS, equivalences=()):
                 if size >= 4_000_000:
                     chunk = ''.join(parts)
                     scan(chunk)
+                    # 留下 30 bp 接缝，使跨块 31-mer 既不遗漏也不重复计数。
                     offset += len(chunk)-30
                     parts, size = [chunk[-30:]], 30
         scan(''.join(parts))
@@ -154,6 +160,7 @@ def reference_profiles(path, loci, reference, lengths=LENGTHS, equivalences=()):
     return profiles, probes
 
 
+# 对 read 的每个终点求侧翼的子串编辑距离，不要求先找到完整的精确种子。
 def endpoint_costs(pattern, text):
     """Exact infix Levenshtein cost at every target endpoint, with Myers bits.
 
@@ -188,6 +195,7 @@ class AnchorOverflow(RuntimeError):
     pass
 
 
+# 保留所有足够好的局部候选，再由定位和双侧一致性排歧；候选过多直接标未解。
 def flank_candidates(flank, sequence, minimum_identity):
     """Enumerate local endpoint minima, including approximate alternatives.
 
@@ -241,6 +249,7 @@ def flank_candidates(flank, sequence, minimum_identity):
     return hits
 
 
+# Record 保留单条 SAM 记录；硬剪切和反向标记只用于跨记录坐标核对。
 @dataclass
 class Record:
     name: str
@@ -277,6 +286,7 @@ class Record:
         return self.hard_right if self.flag & 16 else self.hard_left
 
 
+# 仅把 CIGAR 中同时消耗参考和 query 的位置用于基因组定位证据。
 def mapped_bases(record, start, end):
     ref, query = record.pos, 0
     for size, op in record.ops:
@@ -291,6 +301,7 @@ def mapped_bases(record, start, end):
             query += size
 
 
+# 先保留可解析记录及审计状态；是否能提供定位支持在后续判断，不在此预过滤。
 def parse_records(lines, sample, reference, locus, source, namespace, platform=''):
     records, audit, groups, header_length = [], Counter(), {}, None
     for index, line in enumerate(lines, 1):
@@ -341,6 +352,7 @@ def parse_records(lines, sample, reference, locus, source, namespace, platform='
     return records, audit
 
 
+# 比较同一分子各记录在原 query 坐标上的重叠内容，绝不拼接互补片段。
 def consistent_sequences(group):
     available = [r for r in group if r.sequence != '*']
     # Secondary representations can be trimmed inconsistently by upstream tools;
@@ -358,6 +370,7 @@ def consistent_sequences(group):
     return True
 
 
+# SEQ 匹配还需由同一分子的合格比对记录证明位置；补充记录可定位但不补造碱基。
 def localization(provider, hit, template, group, locus, min_mapq):
     matched, sources = set(), set()
     blocks=template.get('reference_equivalences',[])
@@ -383,6 +396,7 @@ def localization(provider, hit, template, group, locus, min_mapq):
     return len(matched)/template['length'], sorted(sources)
 
 
+# 同一 query 侧翼若也能落到别处，应保留歧义；无关 read 区段的其他比对不否决。
 def competing_mapping(provider, hit, template, group, locus):
     """Other mappings of the same query flank are ambiguity, even at low MAPQ.
 
@@ -417,6 +431,7 @@ def competing_mapping(provider, hit, template, group, locus):
     return ''
 
 
+# 双侧锚点须方向有序且切点唯一；并列或接近的竞争位置不能用排序任意决胜。
 def choose_pair(left, right):
     pairs = [(a['edits']+b['edits'], a, b) for a in left for b in right if a['end'] <= b['start']]
     if not pairs:
@@ -442,6 +457,7 @@ def extract_records(lines, sample, platform, locus, reference, profiles, min_map
     return extract_parsed(records,audit,sample,locus,profiles,min_mapq)
 
 
+# 逐分子汇总记录，只有单条真实 SEQ 提供完整重复区且边界可核验时才输出 Read。
 def extract_parsed(records, audit, sample, locus, profiles, min_mapq):
     groups = defaultdict(list)
     for r in records:
@@ -521,6 +537,7 @@ def extract_parsed(records, audit, sample, locus, profiles, min_mapq):
                 info['status'] = next((d['status'] for d in info['template_pairs']),
                                       unresolved[0] if unresolved else 'missing_or_ambiguous_anchor')
                 continue
+            # 各合格长度模板必须给出同一对切点，长侧翼不会覆盖短侧翼的冲突。
             cuts = {(a['end'],b['start']) for a,b,_ in accepted_pairs}
             # All localized, sufficiently discriminating template lengths must
             # agree; a longer flank never silently overrides a shorter one.
@@ -529,6 +546,7 @@ def extract_parsed(records, audit, sample, locus, profiles, min_mapq):
                 continue
             a,b,detail = min(accepted_pairs,key=lambda x:(x[0]['length']+x[1]['length'],x[0]['length']))
             qL,qR = a['end'],b['start']
+            # 真正输出的是该记录原 SEQ 的连续切片，不是参考填充或跨记录共识。
             observed = provider.sequence[qL:qR]
             info.update(qL=qL,qR=qR,sequence=observed,original_interval=provider.original_interval(qL,qR))
             if not observed:
@@ -575,6 +593,7 @@ def extract_bam(bam,sample,platform,locus,reference,samtools,profiles,min_mapq,n
                            min_mapq,str(bam),namespace)
 
 
+# 先按样本合并全部输入 BAM 记录，再作分子级判断，避免跨文件重复投票或漏掉冲突。
 def extract_bams(bams,locus,reference,samtools,profiles,min_mapq,namespaces):
     """Combine records across supplied files before molecule evidence decisions."""
     by_sample, per_bam, failures = defaultdict(list), [], []

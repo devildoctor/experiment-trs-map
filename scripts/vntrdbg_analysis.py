@@ -20,6 +20,10 @@ from vntrdbg import raw_graph
 VERSION = 'd1s80_joint_units_v2'
 TERMINAL_VERSION = 'd1s80_joint_units_terminal_v1'
 UNIT_BP = 16
+JOINT_MOLECULE_FIELDS = ['query_id','candidate_id','sample','molecule_key','decision','reason',
+                         'occurrence_count','occurrences_json','observations_json','assigned_to_candidate']
+MOLECULE_EVENT_FIELDS = ['query_id','event_id','sample','molecule_key','path_id','assessment',
+                        'reason','start0','end0','state_id']
 
 
 def read_tsv(path):
@@ -38,6 +42,7 @@ def write_tsv(path, rows, fields):
                              for key, value in row.items()})
 
 
+# 返回所有精确命中起点，包括重复区内互相重叠的命中。
 def occurrences(haystack, needle):
     """All starts, including overlapping occurrences."""
     found = []
@@ -50,6 +55,7 @@ def occurrences(haystack, needle):
         start = pos + 1
 
 
+# 用原始碱基坐标定义分支块和相邻块联合区间，避免依赖随 k 改变的 unitig 编号。
 def branch_queries(records, k, minimum=3):
     """Build reproducible base-coordinate queries, independent of unitig IDs.
 
@@ -60,6 +66,7 @@ def branch_queries(records, k, minimum=3):
     """
     raw = raw_graph(records, k)
     sample_by_molecule = {key: value['sample'] for key, value in raw['molecules'].items()}
+    # REF/CAND 保留为明确假设；OBS 边须在一个样本中达到独立分子门槛。
     hypothetical = set()
     for record in records:
         if record['kind'] in {'reference', 'candidate'}:
@@ -89,6 +96,7 @@ def branch_queries(records, k, minimum=3):
                 blocks.append((pos, pos))
         # A k+1 base signature spans [edge position, edge position+k+1).
         # Merge overlapping signatures before defining independent branches.
+        # 重叠的 k+1-mer 签名属于同一个分支块，不能拆成多个独立选择。
         merged = []
         for first, last in blocks:
             if merged and first < merged[-1][1] + k + 1:
@@ -106,6 +114,7 @@ def branch_queries(records, k, minimum=3):
                                 branch_positions_json=[p for p in positions if first <= p <= last],
                                 exact_bases=signature,
                                 candidate_occurrences=len(occurrences(sequence, signature))))
+        # 联合查询包含两个分支块之间的全部序列，不只比较两端。
         for index, (left, right) in enumerate(zip(merged, merged[1:]), 1):
             start, end = left[0], right[1] + k + 1
             signature = sequence[start:end]
@@ -124,6 +133,7 @@ def branch_queries(records, k, minimum=3):
     return queries
 
 
+# 左右上下文须各自唯一且顺序正确；重复定位不强行选一个位置。
 def anchored_interval(sequence, left, right):
     """A uniquely placed, ordered pair; do not select among repeat occurrences."""
     starts, ends = occurrences(sequence, left), occurrences(sequence, right)
@@ -132,6 +142,7 @@ def anchored_interval(sequence, left, right):
     return starts[0], ends[0] + len(right)
 
 
+# 事件是图上区间及同一样本的显式序列状态，尚不是标准化 SNV/indel 调用。
 def define_events(records, queries):
     """Graph intervals with explicit exact states, not normalized SNV events.
 
@@ -174,9 +185,11 @@ def define_events(records, queries):
     return events
 
 
+# 每条 OBS 只分为支持、已定义竞争状态的冲突、无信息三类。
 def assess_observation(path, query, event, candidate_sequence):
     result = dict(path_id=path['id'], assessment='uninformative',
                   reason='missing_or_repeated_context', start0=None, end0=None, state_id=None)
+    # 整条候选的判断要求双侧锚定；局部片段不能提供全长证据。
     if query['kind'] == 'full_candidate_exact':
         if path['coverage'] != 'two_flank_anchored':
             result['reason'] = 'local_only_cannot_resolve_full_locus'
@@ -193,6 +206,7 @@ def assess_observation(path, query, event, candidate_sequence):
     if bounds is None:
         return result
     start, end = bounds
+    # 未建模的差异或测序错误保留为无信息，不能自动算作反对票。
     result.update(start0=start, end0=end, reason='unmodeled_sequence_or_error')
     for state in event['states_json']:
         if path['sequence'][start:end] == state['exact_bases']:
@@ -204,6 +218,7 @@ def assess_observation(path, query, event, candidate_sequence):
     return result
 
 
+# 先按样本和分子合并记录再计票；同一分子的片段之间不拼接。
 def joint_support(records, queries, events=None):
     """One vote per molecule; classify explicit states and retain raw witnesses.
 
@@ -242,6 +257,7 @@ def joint_support(records, queries, events=None):
             observations = [assess_observation(path, query, event,
                             candidates[query['candidate_id']]['sequence']) for path in paths]
             resolved = {o['assessment'] for o in observations if o['assessment'] != 'uninformative'}
+            # 同一分子同时出现支持与冲突时，整体记为无信息。
             decision = next(iter(resolved)) if len(resolved) == 1 else 'uninformative'
             reason = ('mixed_states_in_one_molecule' if len(resolved) > 1 else
                       'resolved_exact_state' if resolved else 'no_resolved_state')
@@ -252,6 +268,7 @@ def joint_support(records, queries, events=None):
                                  occurrence_count=len(hits), occurrences_json=hits,
                                  observations_json=observations,
                                  assigned_to_candidate=key in query.get('assigned_molecule_keys', set())))
+        # 条件支持比例仅在有信息分子中计算，不是等位频率或基因型概率。
         informative = decisions['support'] + decisions['conflict']
         summaries.append(dict(query_id=query['query_id'], candidate_id=query['candidate_id'],
                               sample=query['sample'], kind=query['kind'], k=query['k'],
@@ -267,11 +284,13 @@ def joint_support(records, queries, events=None):
                               conflict_molecules=decisions['conflict'],
                               uninformative_molecules=decisions['uninformative'],
                               support_fraction=decisions['support']/informative if informative else 'NA',
-                              status='computed' if informative else 'no_informative_molecules',
+                              status='no_observed_molecules' if not molecules else
+                                     'computed' if informative else 'no_informative_molecules',
                               interpretation='exact_defined_states_not_allele_frequency'))
     return summaries, evidence
 
 
+# 根据模板家族、方向及相位恢复该注释实际使用的模板。
 def template_for(token):
     if token['status'] == 'unknown':
         return ''
@@ -281,6 +300,7 @@ def template_for(token):
     return oriented[phase:] + oriented[:phase]
 
 
+# 只选原始周期确为 16 bp 的可用基本模板，不把较短周期的倍数误作 16 bp 单元。
 def primitive_templates(motifs):
     from vntrmotifs import primitive_unit
     return sorted({row['motif'] for row in motifs
@@ -289,6 +309,7 @@ def primitive_templates(motifs):
                    and len(primitive_unit(row['motif'])) == UNIT_BP})
 
 
+# 给所有保存路径增加单元注释层；原始碱基、边界和候选序列均不改写。
 def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
     """Annotate every saved sequence; fragment counts never become locus CN.
 
@@ -311,6 +332,7 @@ def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
         if record.get('sequence_sha256', sequence_hash) != sequence_hash:
             raise ValueError(f'{path_id}: sequence hash does not match input')
         coverage = record.get('coverage', 'unknown')
+        # 局部 OBS 的单元数只描述该片段，不能报告整个基因组位点的 CN。
         fragment = record['kind'] == 'observed' and coverage != 'two_flank_anchored'
         count_scope = ('observed_fragment' if fragment else
                        'observed_full_interval' if record['kind'] == 'observed' else
@@ -327,6 +349,7 @@ def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
                         if record['kind'] == 'reference' else terminal_by_sample.get(record.get('sample', ''), {}))
         primary, _, audit = decompose(sequence, tuple(templates), return_details=True,
                                      right_terminal_motifs=tuple(terminal))
+        # 保存主方案和一个次优方案；次优存在不一定表示并列最优。
         schemes = {'primary': [dict(vars(item)) for item in primary]}
         if audit['alternative']:
             schemes['alternative'] = [dict(item) for item in audit['alternative']]
@@ -338,6 +361,7 @@ def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
                       for scheme, tokens in schemes.items()}
         path_units = []
         for scheme, tokens in schemes.items():
+            # 逐方案验证原始序列无损重建及连续坐标，未知片段也必须保留。
             if ''.join(token['exact_bases'] for token in tokens) != sequence:
                 raise AssertionError(f'{path_id} {scheme}: units do not reconstruct sequence')
             position = 0
@@ -395,6 +419,7 @@ def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
                                       legacy_full_tokens=sum(row['status'] == 'full' for row in old_tokens)
                                       if is_candidate else 'NA',
                                       method_version=VERSION))
+                # 启用终端模板模式后统一保留 CN=NA；完整注释单元数另列。
                 if terminal_by_sample is not None:
                     summaries[-1].update(primitive_cn='NA', cn_policy='withheld_terminal_validation',
                         primitive_cn_status='withheld' if count_status == 'resolved_count' else count_status,
@@ -414,6 +439,7 @@ def primitive_units(records, motifs, legacy_tokens, terminal_by_sample=None):
     return units, summaries, counts
 
 
+# 在原边界和冻结来源下验证右端模板，不能通过移动边界补齐整数单元。
 def terminal_evidence(args, records, motifs, source_summary):
     """Verify frozen provenance before reading raw boundary context on compute node."""
     from vntrgraph import IndexedFastaReference, read_catalog
@@ -466,12 +492,15 @@ def terminal_evidence(args, records, motifs, source_summary):
     return accepted, details, extra+[args.catalog, index]
 
 
+# 本入口仅支持 D1S80 的 16 bp 模型；其他 VNTR 不能直接套用。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dbg-dir', type=Path, required=True)
     parser.add_argument('--pointgraph-dir', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--k', type=int, nargs='+', default=[21, 33])
+    parser.add_argument('--branch-min-support', type=int, default=3,
+                        help='Per-sample independent OBS molecules needed to define a branch; independent of dBG filtering')
     parser.add_argument('--terminal-units', action='store_true', help='Validate sample-specific right-terminal templates; withhold CN')
     parser.add_argument('--terminal-min-support', type=int, default=3)
     parser.add_argument('--catalog', type=Path)
@@ -479,6 +508,8 @@ def main():
     args = parser.parse_args()
     if len(set(args.k)) != len(args.k) or any(k < 2 for k in args.k):
         parser.error('--k must contain distinct integers >= 2')
+    if args.branch_min_support < 1:
+        parser.error('--branch-min-support must be >= 1')
     if args.terminal_units and (args.catalog is None or args.reference is None or args.terminal_min_support < 3):
         parser.error('--terminal-units requires --catalog, --reference and --terminal-min-support >= 3')
     inputs = [args.dbg_dir/'input_paths.json', args.pointgraph_dir/'motifs.tsv',
@@ -486,6 +517,7 @@ def main():
     source_summary = json.loads(inputs[3].read_text(encoding='utf-8'))
     if source_summary['locus'] != 'D1S80':
         raise ValueError('This 16-bp analysis is explicitly restricted to D1S80')
+    # 对照冻结记录核验 motif/token 文件，防止混用不同分析批次。
     for path in inputs[1:3]:
         if sha256(path.read_bytes()).hexdigest() != source_summary['source_evidence_hashes'][path.name]:
             raise ValueError(f'Pointgraph source differs from frozen dBG provenance: {path.name}')
@@ -509,9 +541,10 @@ def main():
         accepted, terminal_details, extra_inputs = terminal_evidence(args, records, motifs, source_summary)
         inputs.extend(extra_inputs)
     units, unit_summary, motif_counts = primitive_units(records, motifs, legacy, accepted)
+    # 同一批精确路径分别生成各 k 的查询，候选分配仅作元数据，不筛选支持分子。
     all_queries = []
     for k in args.k:
-        for query in branch_queries(records, k):
+        for query in branch_queries(records, k, args.branch_min_support):
             query['k'] = k
             candidate = next(item for item in candidates
                              if item['id'] == 'CAND_' + query['candidate_id'])
@@ -526,16 +559,19 @@ def main():
                'branch_edge_count','branch_positions_json','exact_bases','candidate_occurrences'])
     write_tsv(args.out/'events.tsv', events, list(events[0]))
     write_tsv(args.out/'joint_support.tsv', joint, list(joint[0]))
-    write_tsv(args.out/'joint_molecules.tsv', evidence, list(evidence[0]))
+    # 候选样本可以没有 OBS；仍输出稳定表头和零支持摘要。
+    write_tsv(args.out/'joint_molecules.tsv', evidence, JOINT_MOLECULE_FIELDS)
     molecule_events = [dict(query_id=row['query_id'], event_id=row['query_id'],
                            sample=row['sample'], molecule_key=row['molecule_key'], **observation)
                        for row in evidence for observation in row['observations_json']]
-    write_tsv(args.out/'molecule_events.tsv', molecule_events, list(molecule_events[0]))
+    write_tsv(args.out/'molecule_events.tsv', molecule_events, MOLECULE_EVENT_FIELDS)
     write_tsv(args.out/'primitive_units.tsv', units, list(units[0]))
     write_tsv(args.out/'unit_summary.tsv', unit_summary, list(unit_summary[0]))
     write_tsv(args.out/'motif_counts.tsv', motif_counts, list(motif_counts[0]))
     manifest = dict(method_version=VERSION, source_inputs={str(path): sha256(path.read_bytes()).hexdigest()
                                                           for path in inputs}, k=args.k,
+                    branch_min_support=args.branch_min_support,
+                    branch_support_scope='max_unique_molecules_within_one_sample',
                     candidate_count=len(candidates), observed_path_count=sum(x['kind']=='observed' for x in records),
                     decomposed_path_count=len(unit_summary), path_types=dict(Counter(x['kind'] for x in records)),
                     joint_query_count=len(joint), unit_row_count=len(units), locus_id='D1S80',

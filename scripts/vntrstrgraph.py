@@ -17,17 +17,20 @@ VERSION = "str_unit_graph_v1"
 COLORS = {"repeat": "#dbeafe", "literal": "#fff0cc", "reference_flank": "#edf0f4"}
 
 
+# 压缩连续访问次数；访问一个单元 n 次，对应的自环经过数通常为 n-1。
 def compact_walk(walk):
     """Run lengths are visits to a segment, not traversals of its self-link."""
     return [dict(node=node, count=sum(1 for _ in visits))
             for node, visits in groupby(walk)]
 
 
+# 结构状态使用块类型及精确碱基；重复次数另存于每条路径。
 def _token(block):
     return (block["kind"], block["motif"] if block["kind"] == "repeat"
             else block["exact_bases"])
 
 
+# 先共享前缀，再合并相同后缀状态；相同碱基位于不同上下文时不强行共用节点。
 def build_graph(locus, records, left, right, molecule_ids=None):
     """Share prefixes, then identical suffix states of count-blind block paths.
 
@@ -91,6 +94,7 @@ def build_graph(locus, records, left, right, molecule_ids=None):
         queue.extend(states[cid]["children"])
     if set(identifiers) & ({"L", "R"} | set(names.values())):
         raise ValueError("GFA segment and path identifiers must be distinct")
+    # 两侧节点是外加的参考上下文，并不证明每个观测分子实际覆盖了这些侧翼。
     nodes = {"L": dict(kind="reference_flank", sequence=left)}
     nodes.update({name: dict(kind=states[cid]["token"][0],
                              sequence=states[cid]["token"][1])
@@ -132,6 +136,7 @@ def build_graph(locus, records, left, right, molecule_ids=None):
                 paths=paths)
 
 
+# 标准 P 记录展开全部访问，rp 仅作附加压缩表达；两者必须指向同一条路径。
 def write_gfa(path, graph):
     """GFA1 P is authoritative; rp is an optional, ASCII, user-defined RLE tag."""
     lines = ["H\tVN:Z:1.0"]
@@ -147,10 +152,12 @@ def write_gfa(path, graph):
                                              encoding="utf-8")
 
 
+# 仅为节点文字换行，不改变保存的节点序列。
 def _lines(sequence, width=22):
     return [sequence[i:i+width] for i in range(0, len(sequence), width)] or [""]
 
 
+# Graphviz 绘制节点和边；拓扑图不承载每条路径的重复次数。
 def write_topology(path, graph):
     """Graphviz lays out the exact S/L topology; no path-specific counts here."""
     dot = ['digraph STR {', 'graph [rankdir=LR, bgcolor="white", pad=0.3, nodesep=0.45];',
@@ -168,6 +175,7 @@ def write_topology(path, graph):
     subprocess.run(["dot", "-Tsvg", str(dotpath), "-o", str(path)], check=True)
 
 
+# 逐条显式路径显示节点及次数，不能从拓扑自环推导未保存的次数。
 def write_paths_svg(path, graph, paths=None):
     """One row per explicit path; boxes/arrows/loops keep the GFA identifiers."""
     paths = graph["paths"] if paths is None else paths
@@ -224,6 +232,7 @@ def write_paths_svg(path, graph, paths=None):
     Path(path).write_text(header+"".join(body)+"</svg>\n", encoding="utf-8")
 
 
+# 同一图模型生成 GFA、JSON、总拓扑图及逐路径 SVG，避免多套绘图语义。
 def write_outputs(destination, locus, records, left, right, molecule_ids=None):
     graph = build_graph(locus, records, left, right, molecule_ids)
     write_gfa(destination/f"{locus}.gfa", graph)

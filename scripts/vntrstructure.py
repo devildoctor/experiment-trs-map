@@ -15,8 +15,8 @@ import json
 import math
 import re
 
-from vntrgraph import IndexedFastaReference, read_catalog, discover_bams
-from vntrreads import read_bam, write_table, collect_reads, annotation_results
+from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, load_source_namespaces, locus_output_dir
+from vntrreads import read_bam, write_table, collect_reads, annotation_results, row_molecule_key
 from vntrcore import edit_distance, revcomp, compact, canonical_motif
 from vntrsummary import structural_summary, reference_report, exact_runs, summary_svg
 
@@ -26,11 +26,13 @@ VERSION='5.1-phase1'
 PALETTE=['#3874ad','#bf722b','#927c29','#a34e83','#718441']
 
 
+# 与主点图统一按样本、命名空间和 QNAME 去重；旧结果的命名空间为空。
 def support_key(row):
     # BAM copies and multiple alignment records must not multiply support.
-    return compact([row['sample'],row['read_id']])
+    return row_molecule_key(row)
 
 
+# 结构模式要求目录显式提供种子；种子来源本身不是分子验证结果。
 def seed_dictionary(motifs):
     if not motifs:
         raise ValueError('Structure mode requires MOTIFS in BED; seeds are not inferred silently')
@@ -43,6 +45,7 @@ def seed_dictionary(motifs):
             for i,m in enumerate(unique)])
 
 
+# 补充基本周期，并检查哪些目录单元可由更短单元组成，区分基础层和复合层。
 def normalize_dictionary(dictionary):
     for record in list(dictionary):
         record.update(definition(record['sequence']))
@@ -63,6 +66,7 @@ def normalize_dictionary(dictionary):
     return dictionary
 
 
+# 按最佳种子相位枚举参考变体，再独立扫描精确周期，减少遗漏新周期的机会。
 def add_reference_units(dictionary, sequence):
     """Use the best seed phase to enumerate reference units, including interruptions."""
     keys={canonical_motif(m['sequence']) for m in dictionary}
@@ -98,11 +102,13 @@ def add_reference_units(dictionary, sequence):
     return normalize_dictionary(dictionary)
 
 
+# 提取满足次数和跨度条件的精确局部串联单元。
 def exact_tandem_units(sequence,min_length=2,max_length=200):
     return {h['sequence'] for h in exact_runs(sequence,max_period=max_length,
             min_period=min_length,min_copies=2,min_span=2*min_length)}
 
 
+# 双向模板进行动态规划；每个 token 保存实际碱基，并记录主方案和一个备选。
 def segment(task,return_details=False):
     """Seed-guided exact-slice DP. Gap/length penalties exceed UNKNOWN cost.
 
@@ -136,6 +142,7 @@ def segment(task,return_details=False):
         update(i+1,cost[i]+1,(i,-1,'unknown',0))
         for v in sorted(candidates.get(i,())):
             m,s,orientation=variants[v];length=len(s)
+            # 32%/38% 是候选匹配搜索上限，最终还受代价约束，不是准确率或有损聚合比例。
             allowed=0 if length==1 else 1 if length<=6 else max(1,math.floor(length*(.32 if platform=='HiFi' else .38)))
             slip=0 if length==1 else max(1,min(8,math.ceil(length*(.08 if platform=='HiFi' else .16))))
             for width in range(max(1 if length==1 else 2,length-slip),min(n-i,length+slip)+1):
@@ -150,8 +157,9 @@ def segment(task,return_details=False):
                     if sequence[:width]==s[-width:]:update(width,.2,(0,v,'partial',0))
             if minimum<=n-i<len(s) and sequence[i:]==s[:n-i]:
                 update(n,cost[i]+.2,(i,v,'partial',0))
-    audit=dp.audit();alternate=dp.trace(1);alternate_set=set(alternate)
-    def convert(steps):
+    audit=dp.audit();primary=dp.trace();alternate=dp.trace(1)
+    def convert(steps,other_steps):
+        other_set=set(other_steps)
         result=[]
         for start,end,v,status,d in steps:
             m,s,orientation=variants[v] if v>=0 else ({'id':'U','base':'U'},'','?')
@@ -162,24 +170,26 @@ def segment(task,return_details=False):
                    motif=m['id'],base=m['base'],template=s,orientation=orientation,family=family,
                    phase=phase,phase_policy='fixed_template_phase',canonical_orientation=canonical_orientation,
                    orientation_reference='catalog_template',phase_reference='canonical_family',edit_distance=d,
-                   annotation_ambiguity=audit['annotation_ambiguity'] and (start,end,v,status,d) not in alternate_set)
+                   annotation_ambiguity=audit['annotation_ambiguity'] and (start,end,v,status,d) not in other_set)
             if status=='unknown' and result and result[-1]['status']=='unknown':
                 result[-1]['end']=end;result[-1]['exact_bases']+=t['exact_bases']
                 result[-1]['annotation_ambiguity']|=t['annotation_ambiguity']
             else:result.append(t)
         assert ''.join(t['exact_bases'] for t in result)==sequence
         return result
-    result=convert(dp.trace())
+    result=convert(primary,alternate)
     audit['metrics']=base_metrics(result)
-    audit['alternative']=convert(alternate) if alternate else []
+    audit['alternative']=convert(alternate,primary) if alternate else []
     audit['alternative_metrics']=base_metrics(audit['alternative']) if alternate else None
     return (result,audit) if return_details else result
 
 
+# 供批量注释调用，额外返回分解代价、歧义和备选方案。
 def segment_details(task):
     return segment(task,return_details=True)
 
 
+# 按片段顺序回填 token 和分解审计，不根据是否能注释成功来删除片段。
 def annotate_rows(rows,dictionary,workers):
     fragments=[(r,f) for r in rows for f in r['fragments']]
     tasks=((f['sequence'],dictionary,r['platform']) for r,f in fragments)
@@ -188,6 +198,7 @@ def annotate_rows(rows,dictionary,workers):
         if workers>1 and i%100==0:print(f'Annotated {i}/{len(fragments)}',flush=True)
 
 
+# 从合格 HiFi 主比对学习新模板；要求精确重复上下文和去重支持，门槛只影响字典。
 def learn_variants(rows,dictionary,minimum=3,limit=256,min_fraction=.10):
     """Discover primitive local repeats independently of current annotation.
 
@@ -234,6 +245,7 @@ def learn_variants(rows,dictionary,minimum=3,limit=256,min_fraction=.10):
             for sample,seen in by_sample[variant].items():sample_counts[sample].update(seen)
         fraction=max((len(seen)/len(informative[sample]) for sample,seen in sample_counts.items() if informative[sample]),default=0)
         source_set=set().union(*(sources[v] for v,_ in variants))
+        # 这里检查跨样本总分子数和样本内最高比例；并非要求同一样本达到 minimum 条。
         reason='accepted' if len(all_ids)>=minimum and fraction>=min_fraction else 'low_HiFi_support' if len(all_ids)<minimum else 'low_sample_fraction'
         audit.append(dict(sequence=item[1],base=item[2],length=len(item[1]),support=len(all_ids),hifi_support=len(all_ids),sample_fraction=round(fraction,4),sources=','.join(sorted(source_set)),status=reason,phase_key=key))
         if reason=='accepted':admitted.append((item,len(all_ids),sorted(all_ids),source_set))
@@ -246,6 +258,7 @@ def learn_variants(rows,dictionary,minimum=3,limit=256,min_fraction=.10):
     return normalize_dictionary(dictionary+added),sorted(audit,key=lambda x:(x['status']!='accepted',-x['support'],x['sequence']))
 
 
+# 将连续同类完整单元写成次数块；未知和末端残片保持独立状态。
 def run_blocks(tokens,family=False):
     blocks=[]
     for i,t in enumerate(tokens):
@@ -258,11 +271,13 @@ def run_blocks(tokens,family=False):
     return blocks
 
 
+# 复合重复是独立注释层；与基础单元计数可能重叠，不能直接相加。
 def compound_blocks(tokens,catalog=()):
     return [dict(h,start=h['start_token'],end=h['end_token'],bp_start=h['start'],bp_end=h['end'],width=h['base_unit_count'])
             for h in compound_annotations(tokens,catalog)]
 
 
+# 同时建立精确节点、模板节点和显示家族；路径保留实际顺序，分子支持与经过次数分开。
 def summarize(rows,dictionary):
     exact={};abstract={};edges={};exact_edges={};patterns={}
     family_nodes={};family_edges={};base_lookup={m['id']:m['base'] for m in dictionary}
@@ -319,6 +334,7 @@ def summarize(rows,dictionary):
                 patterns=sorted(finish(patterns),key=lambda p:(-p['support'],p['id'])),family_nodes=finish(family_nodes),family_edges=finish(family_edges))
 
 
+# 颜色只用于区分显示标签，不表达致病性或统计置信度。
 def color(label):
     if label.startswith('U'):return '#87909b'
     if label.startswith('P'):return '#b8a87a'
@@ -329,6 +345,7 @@ def color(label):
     return '#'+''.join(f'{round(int(base[i:i+2],16)*factor):02x}' for i in (1,3,5))
 
 
+# 家族转移图只展示邻接关系；U/P 是显示桶，不能据此认定序列相同。
 def graph_svg(graph,locus):
     """Small family-level topology; U/P are explicit display buckets only."""
     nodes=graph['family_nodes'];edges=graph['family_edges'];pos={n['id']:(130+i*245,155) for i,n in enumerate(nodes)}
@@ -352,6 +369,7 @@ def graph_svg(graph,locus):
     return ''.join(parts)+'</svg>'
 
 
+# 全部片段使用同一 bp 比例尺；横轴是片段自身坐标而非参考多序列比对。
 def rows_svg(rows,max_length,title):
     count=sum(max(1,len(r['fragments'])) for r in rows);height=100+count*65
     parts=[f'<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="{height}" viewBox="0 0 1500 {height}" font-family="sans-serif"><rect width="100%" height="100%" fill="white"/>',f'<text x="20" y="25" font-size="18">{escape(title)}</text>',
@@ -360,7 +378,7 @@ def rows_svg(rows,max_length,title):
     for row in rows:
         fragments=row['fragments'] or [None]
         for f in fragments:
-            label=f'{row["sample"]}/{row["platform"]} {row["read_id"]}'
+            label=f'{row["sample"]}/{row["platform"]}/{row.get("namespace", "")} {row["read_id"]}'
             parts.append(f'<text x="20" y="{y}" font-size="11"><title>{escape(label)}</title>{escape(label[:49])}</text>')
             if not f:
                 parts.append(f'<text x="390" y="{y}" font-size="12">{escape(row["status"])}</text>');y+=65;continue
@@ -377,6 +395,7 @@ def rows_svg(rows,max_length,title):
     return ''.join(parts)+'</svg>'
 
 
+# 精确 GFA 写实际碱基；抽象 GFA 写 S=* 和模板标签，后者不能重建真实碱基。
 def write_gfa(path,nodes,edges,rows,abstract=False):
     with path.open('w',encoding='utf-8') as out:
         out.write('H\tVN:Z:1.0\tPG:Z:vntrstructure-4\tDS:Z:'+('abstract_motif_graph_not_base_reconstruction' if abstract else 'exact_sequence_graph')+'\n')
@@ -391,6 +410,7 @@ def write_gfa(path,nodes,edges,rows,abstract=False):
                 if p:out.write(f'P\t{f["id"]}\t{p}\t*\tRN:Z:{r["read_id"]}\tCV:Z:{f["coverage"]}\n')
 
 
+# 汇总图、结构类型、局部模块和分子证据，并输出完整数据及交互页面。
 def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summary_minimum=3,summary_fraction=.10):
     if locus.str_structure:
         import vntrstr
@@ -436,7 +456,8 @@ def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summar
                  unknown_bases=unknown,total_observed_bases=total,unknown_fraction=unknown/max(1,total),
                  sequence_reconstruction_checks_passed=len(fragments),
                  feature_counts=dict(Counter(x for f in fragments for x in f['features'])),
-                 support_definition='distinct sample/QNAME; repeated units, BAM copies, platform labels and alignments counted once per node/edge',
+                 independent_molecules=len({support_key(r) for r in rows}),
+                 support_definition='distinct sample/namespace/QNAME; repeated units, BAM copies, platform labels and alignments counted once per node/edge',
                  limitations='Exploratory seed-guided annotation. Candidate-window boundaries. Abstract graph is not allele sequence; U/P overview buckets do not assert sequence identity; merged graph combinations require observed read paths.')
     audit['platform_annotation']={}
     for platform in sorted({r['platform'] for r in rows}):
@@ -449,13 +470,13 @@ def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summar
     write_table(destination/'motif_candidates.tsv',audit.get('motif_candidates',[]),['round','sequence','base','length','support','hifi_support','sample_fraction','sources','status','phase_key'])
     write_table(destination/'structure_classes.tsv',summary['classes'],['id','skeleton','status','support','hifi_support','samples','length_min','length_max','subtypes','representative'])
     write_table(destination/'local_modules.tsv',summary['modules'],['id','kind','structure','status','support','hifi_support','exact_support','approximate_support','samples','occurrences','instances'])
-    write_table(destination/'read_assignments.tsv',summary['assignments'],['row_id','read_id','fragment_id','sample','platform','class_id','subtype_id','evidence','reason','length','module_ids'])
+    write_table(destination/'read_assignments.tsv',summary['assignments'],['row_id','read_id','fragment_id','sample','platform','class_id','subtype_id','evidence','reason','length','module_ids','namespace','molecule'])
     (destination/'reference_structure.json').write_text(json.dumps(reference_structure,ensure_ascii=False,indent=2),encoding='utf-8')
     write_table(destination/'structure_nodes.tsv',graph['structure_nodes'],['id','sequence','status','support','primary_support','occurrences','samples'])
     write_table(destination/'structure_edges.tsv',graph['edges'],['source','target','support','primary_support','occurrences','samples'])
     write_table(destination/'patterns.tsv',graph['patterns'],['id','structure','coverage','support','primary_support','occurrences','samples'])
-    write_table(destination/'reads.tsv',[dict(r,fragment_count=len(r['fragments'])) for r in rows],['id','read_id','sample','platform','bam','record_count','fragment_count','status'])
-    write_table(destination/'read_nodes.tsv',[dict(t,read_id=r['read_id'],row_id=r['id'],fragment_id=f['id'],order=i+1) for r in rows for f in r['fragments'] for i,t in enumerate(f['tokens'])],['row_id','read_id','fragment_id','order','structure_node','exact_node','motif','base','orientation','phase','phase_policy','status','qstart','qend','edit_distance','annotation_ambiguity','exact_bases'])
+    write_table(destination/'reads.tsv',[dict(r,namespace=r.get('namespace',''),molecule_key=support_key(r),fragment_count=len(r['fragments'])) for r in rows],['id','read_id','sample','platform','bam','record_count','fragment_count','status','namespace','molecule_key'])
+    write_table(destination/'read_nodes.tsv',[dict(t,read_id=r['read_id'],sample=r['sample'],namespace=r.get('namespace',''),molecule_key=support_key(r),row_id=r['id'],fragment_id=f['id'],order=i+1) for r in rows for f in r['fragments'] for i,t in enumerate(f['tokens'])],['row_id','read_id','fragment_id','order','structure_node','exact_node','motif','base','orientation','phase','phase_policy','status','qstart','qend','edit_distance','annotation_ambiguity','exact_bases','sample','namespace','molecule_key'])
     write_table(destination/'compound_blocks.tsv',[dict(h,fragment_id=f['id']) for f in fragments for h in f['compounds']],['fragment_id','start_token','end_token','bp_start','bp_end','pattern','count','units_per_block','base_unit_count','catalog_motif','basis','exact_bases'])
     (destination/'annotation_alternatives.json').write_text(json.dumps({f['id']:f.get('annotation',{}) for f in fragments},ensure_ascii=False,indent=2),encoding='utf-8')
     graph_image=summary_svg(summary,locus.name)
@@ -481,6 +502,7 @@ def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summar
     return audit
 
 
+# 参考补充字典后迭代学习至多三轮，再用最终字典重新注释全部平台。
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--bam-dir',type=Path,required=True);p.add_argument('--reference',type=Path,required=True)
@@ -489,12 +511,15 @@ def main():
     p.add_argument('--variant-support',type=int,default=3);p.add_argument('--max-variants',type=int,default=256)
     p.add_argument('--min-sample-fraction',type=float,default=.10);p.add_argument('--discovery-rounds',type=int,default=3)
     p.add_argument('--gene-strand',choices=['+','-','unknown'],default='unknown')
+    p.add_argument('--sources',type=Path,help='Optional bam/namespace TSV; overrides RG/LB, including an empty namespace')
     args=p.parse_args()
+    try:args.source_namespaces=load_source_namespaces(args.sources)
+    except ValueError as exc:p.error(str(exc))
     if args.workers<1 or args.variant_support<2 or args.max_variants<1 or not 0<args.min_sample_fraction<=1 or not 1<=args.discovery_rounds<=3:p.error('Invalid workers/support/variant/discovery limits')
     selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
     if len(selected)!=1:p.error('Unknown locus')
     locus=selected[0];dictionary=seed_dictionary(locus.motifs)
-    destination=args.out/locus.name;destination.mkdir(parents=True,exist_ok=False)
+    destination=locus_output_dir(args.out,locus.name);destination.mkdir(parents=True,exist_ok=False)
     rows=[];audits=[]
     with IndexedFastaReference(args.reference) as reference:
         reference_sequence=reference.fetch(locus.chrom,locus.start,locus.end).upper()
@@ -506,7 +531,7 @@ def main():
         with (destination/'records.jsonl').open('w',encoding='utf-8') as records:
             bams=discover_bams(args.bam_dir,locus.name)
             if not bams:raise ValueError('No BAM input')
-            rows,audits=collect_reads(bams,locus,reference,args.samtools,100,records)
+            rows,audits=collect_reads(bams,locus,reference,args.samtools,100,records,args.source_namespaces)
         print(f'Discovery: {len(rows)} rows; {len(dictionary)} BED/reference motifs',flush=True)
         candidate_audit=[]
         hifi=[r for r in rows if r['platform']=='HiFi']
