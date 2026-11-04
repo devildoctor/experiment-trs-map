@@ -18,11 +18,12 @@ import re
 from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, load_source_namespaces, locus_output_dir
 from vntrreads import read_bam, write_table, collect_reads, annotation_results, row_molecule_key
 from vntrcore import edit_distance, revcomp, compact, canonical_motif
-from vntrsummary import structural_summary, reference_report, exact_runs, summary_svg
+from vntrsummary import structural_summary, reference_report, exact_runs, summary_svg, is_primary
+from vntrpartition import load_model, export_core
 
 from vntrmotifs import primitive_unit, definition, forms, context_support, TwoPaths, base_metrics, compound_annotations
 
-VERSION='5.1-phase1'
+VERSION='5.2-frozen-partition'
 PALETTE=['#3874ad','#bf722b','#927c29','#a34e83','#718441']
 
 
@@ -122,11 +123,17 @@ def segment(task,return_details=False):
     for m in dictionary:
         if m.get('level',definition(m['sequence'])['level']) != 'base':continue
         for orientation,s in (('+',m['sequence']),('-',revcomp(m['sequence']))):
+            if orientation not in m.get('match_orientations',('+','-')):continue
             if (m['id'],s) not in seen:
                 variants.append((m,s,orientation));seen.add((m['id'],s))
     candidates=defaultdict(set)
     for v,(m,s,orientation) in enumerate(variants):
         length=len(s); k=min(length,5,max(2,length//5))
+        # A short unit with one edit may share no exact seed (CTG -> CCG).
+        # Enumerate every start for STRs; long units retain seed-guided search.
+        if length<=6:
+            for start in range(n):candidates[start].add(v)
+            continue
         slip=max(1,min(8,math.ceil(length*.08)))
         for offset in sorted({0,max(0,length//3),max(0,2*length//3-k),length-k}):
             hit=sequence.find(s[offset:offset+k])
@@ -210,7 +217,7 @@ def learn_variants(rows,dictionary,minimum=3,limit=256,min_fraction=.10):
     for r in rows:
         if r['platform']!='HiFi':continue
         for f in r['fragments']:
-            if f['alignment_type']!='primary' or f['mapq']<20 or set(f.get('flags',[]))&{'duplicate_flag','qc_fail'}:continue
+            if not is_primary(f):continue
             informative[r['sample']].add(support_key(r))
             sequence=f.get('sequence',''.join(t['exact_bases'] for t in f['tokens']))
             runs=exact_runs(sequence,max_period=200,min_period=2,min_copies=2,min_span=12)
@@ -286,7 +293,7 @@ def summarize(rows,dictionary):
         return store[key]
     def add(n,row,fragment):
         key=support_key(row);n['reads'].add(key);n['occurrences']+=1;n['samples'][row['sample']].add(key)
-        if fragment['alignment_type']=='primary' and fragment['mapq']>=20:n['primary_reads'].add(key)
+        if is_primary(fragment):n['primary_reads'].add(key)
     def edge(store,a,b,row,fragment):
         key=(a,b)
         if key not in store:store[key]=dict(source=a,target=b,reads=set(),primary_reads=set(),occurrences=0,samples=defaultdict(set))
@@ -435,7 +442,7 @@ def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summar
     for r in rows:
         if r['platform']!='HiFi':continue
         for f in r['fragments']:
-            if f['alignment_type']!='primary' or f['mapq']<20 or set(f.get('flags',[]))&{'duplicate_flag','qc_fail'}:continue
+            if not is_primary(f):continue
             hits=context_support(f['sequence'],[m['sequence'] for m in dictionary])
             for motif in dictionary:
                 for start,end in hits[motif['sequence']]['context_occurrences']:
@@ -512,30 +519,40 @@ def main():
     p.add_argument('--min-sample-fraction',type=float,default=.10);p.add_argument('--discovery-rounds',type=int,default=3)
     p.add_argument('--gene-strand',choices=['+','-','unknown'],default='unknown')
     p.add_argument('--sources',type=Path,help='Optional bam/namespace TSV; overrides RG/LB, including an empty namespace')
+    p.add_argument('--locus-model',type=Path,help='Apply a frozen locus model; disables reference/sample dictionary learning')
+    p.add_argument('--core-output',action='store_true',help='Show ordered units and actual bases; retain detailed outputs under audit/')
     args=p.parse_args()
     try:args.source_namespaces=load_source_namespaces(args.sources)
     except ValueError as exc:p.error(str(exc))
     if args.workers<1 or args.variant_support<2 or args.max_variants<1 or not 0<args.min_sample_fraction<=1 or not 1<=args.discovery_rounds<=3:p.error('Invalid workers/support/variant/discovery limits')
     selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
     if len(selected)!=1:p.error('Unknown locus')
-    locus=selected[0];dictionary=seed_dictionary(locus.motifs)
+    locus=selected[0];model=None
+    if args.locus_model:
+        try:model,dictionary=load_model(args.locus_model,locus)
+        except ValueError as exc:p.error(str(exc))
+    else:dictionary=seed_dictionary(locus.motifs)
     destination=locus_output_dir(args.out,locus.name);destination.mkdir(parents=True,exist_ok=False)
+    detail=destination/'audit' if args.core_output else destination
+    detail.mkdir(exist_ok=True)
+    if model:(detail/'locus_model.json').write_bytes(args.locus_model.read_bytes())
     rows=[];audits=[]
     with IndexedFastaReference(args.reference) as reference:
         reference_sequence=reference.fetch(locus.chrom,locus.start,locus.end).upper()
-        dictionary=add_reference_units(dictionary,reference_sequence)
+        if model is None:dictionary=add_reference_units(dictionary,reference_sequence)
         ref_start=max(0,(locus.search_start if locus.search_start is not None else locus.start)-100)
         ref_end=min(reference.contig_length(locus.chrom),(locus.search_end if locus.search_end is not None else locus.end)+100)
         ref_window=reference.fetch(locus.chrom,ref_start,ref_end)
         if len(dictionary)>args.max_variants:raise ValueError('Reference motif dictionary exceeds --max-variants')
-        with (destination/'records.jsonl').open('w',encoding='utf-8') as records:
+        with (detail/'records.jsonl').open('w',encoding='utf-8') as records:
             bams=discover_bams(args.bam_dir,locus.name)
             if not bams:raise ValueError('No BAM input')
             rows,audits=collect_reads(bams,locus,reference,args.samtools,100,records,args.source_namespaces)
         print(f'Discovery: {len(rows)} rows; {len(dictionary)} BED/reference motifs',flush=True)
         candidate_audit=[]
         hifi=[r for r in rows if r['platform']=='HiFi']
-        for round_number in range(1,args.discovery_rounds+1):
+        round_number=0
+        for round_number in range(1,(0 if model else args.discovery_rounds)+1):
             annotate_rows(hifi,dictionary,args.workers)
             updated,candidates=learn_variants(hifi,dictionary,args.variant_support,args.max_variants,args.min_sample_fraction)
             candidate_audit.extend(dict(item,round=round_number) for item in candidates)
@@ -548,12 +565,18 @@ def main():
     audit=dict(locus=asdict(locus),bam_count=len(bams),read_rows=len(rows),rows_with_repeat_sequence=sum(bool(r['fragments']) for r in rows),
                rows_without_extractable_repeat=sum(not r['fragments'] for r in rows),alignment_records=sum(r['record_count'] for r in rows),bam_audits=audits,
                motif_candidates=candidate_audit,discovery_rounds_run=round_number,
-               motif_source_counts=dict(Counter(m['source'] for m in dictionary)))
-    audit=emit(destination,locus,rows,dictionary,audit,reference_structure,args.variant_support,args.min_sample_fraction)
+               motif_source_counts=dict(Counter(m['source'] for m in dictionary)),
+               dictionary_mode='frozen_apply' if model else 'discover',
+               model_version=model['version'] if model else None,
+               model_sha256=sha256(args.locus_model.read_bytes()).hexdigest() if model else None,
+               mapping_context='supplied_BAM_only_not_verified_complete')
+    audit=emit(detail,locus,rows,dictionary,audit,reference_structure,args.variant_support,args.min_sample_fraction)
+    if args.core_output:export_core(destination,locus,rows,dictionary,reference_structure,audit)
     hashes={f.name:sha256(f.read_bytes()).hexdigest() for f in Path(__file__).parent.glob('vntr*.py')}
     hashes['structure_summary_view.html']=sha256(Path(__file__).with_name('structure_summary_view.html').read_bytes()).hexdigest()
-    (destination/'parameters.json').write_text(json.dumps(dict(args={k:str(v) for k,v in vars(args).items()},source_hashes=hashes,catalog_sha256=sha256(args.catalog.read_bytes()).hexdigest()),ensure_ascii=False,indent=2),encoding='utf-8')
-    print(compact({k:v for k,v in audit.items() if k!='bam_audits'}),flush=True)
+    hashes['partition_view.html']=sha256(Path(__file__).with_name('partition_view.html').read_bytes()).hexdigest()
+    (detail/'parameters.json').write_text(json.dumps(dict(args={k:str(v) for k,v in vars(args).items()},source_hashes=hashes,catalog_sha256=sha256(args.catalog.read_bytes()).hexdigest()),ensure_ascii=False,indent=2),encoding='utf-8')
+    print(compact({k:audit[k] for k in ('locus','bam_count','read_rows','graph_fragments','dictionary_mode','unknown_fraction','sequence_reconstruction_checks_passed')}),flush=True)
 
 
 if __name__=='__main__':main()

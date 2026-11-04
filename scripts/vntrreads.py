@@ -100,7 +100,7 @@ def extract_record(fields, locus, left, right):
                 strand='-' if flag & 16 else '+',
                 alignment_type='secondary' if flag & 256 else 'supplementary' if flag & 2048 else 'primary')
     meta['flags'] = ([x for bit, x in ((1024,'duplicate_flag'),(512,'qc_fail'),(256,'secondary_alignment'),(2048,'supplementary_alignment')) if flag & bit]
-                     + (['low_mapq'] if mapq < 20 else []))
+                     + (['low_mapq'] if mapq < 20 else ['mapq_unavailable'] if mapq == 255 else []))
     if flag & 4 or chrom != locus.chrom:
         return dict(meta, status='unmapped' if flag & 4 else 'other_contig')
     if sequence == '*':

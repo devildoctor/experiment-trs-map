@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__LOCUS__ · 单元划分</title>
+<style>
+:root{font-family:system-ui,"Microsoft YaHei",sans-serif;color:#172c32;background:#f5f7f6;font-size:15px}
+body{max-width:1140px;margin:36px auto;padding:0 24px}h1{font-size:32px;margin:8px 0}h2{font-size:18px;margin:0 0 18px}p{line-height:1.7}
+.muted{color:#63757a;font-size:13px}.eyebrow{color:#347568;letter-spacing:.12em;font-size:12px}section{background:white;border:1px solid #dce5e2;border-radius:12px;padding:24px;margin:20px 0}
+table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th{color:#62747a;font-weight:500}td,th{padding:11px 12px;border-bottom:1px solid #e8edeb;vertical-align:top}td:first-child,th:first-child{padding-left:0}
+code,.bases{font-family:Consolas,monospace;overflow-wrap:anywhere;letter-spacing:.04em}.bases{color:#215c51}select,button{font:inherit;padding:8px;border:1px solid #cbd8d3;border-radius:6px;background:white;max-width:100%}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px}.controls label{font-size:13px;color:#52686c}#observation{max-width:440px}
+#path{display:flex;align-items:stretch;gap:7px;flex-wrap:wrap;margin:18px 0}.unit{padding:8px 12px;border-radius:7px;background:#e5f2ed;border:1px solid #bddbce;cursor:pointer;font-family:Consolas,monospace}.unit.m2{background:#e8edf9;border-color:#c8d3ed}.unit.edited{border-color:#c9944b;background:#fff3df}.unit.unknown{border-color:#cba5b6;background:#f9eaf0}.unit.partial{border-style:dashed;background:#f1f2f3}.unit:focus{outline:2px solid #347568}
+#status{font-size:13px;color:#6a5b36;background:#faf7ed;padding:10px 13px;border-radius:6px;line-height:1.6}.tablewrap{overflow:auto;max-height:460px}.tablewrap table{min-width:730px}tr.selected{background:#f0f7f3}
+.unit{max-width:100%;overflow-wrap:anywhere;text-align:left}.counts{display:flex;gap:24px;flex-wrap:wrap;color:#52686c;font-size:13px}.counts b{font-size:23px;color:#172c32;margin-right:5px}a{color:#246e60}details{margin-top:18px}summary{cursor:pointer;color:#52686c;font-size:13px}.note{font-size:13px;color:#66777a}
+@media(max-width:650px){body{padding:0 14px;margin:20px auto}section{padding:18px}h1{font-size:26px}.counts{gap:14px}}
+</style>
+<div class="eyebrow">VNTR POINT GRAPH / PARTITION</div><h1>__LOCUS__ · 单元划分</h1>
+<p id="definition" class="muted"></p><div id="counts" class="counts"></div>
+<section><h2>划分依据</h2><p class="note">先固定区间、方向和 motif 词典，再用动态规划匹配单元。允许替换和插缺；无法匹配的碱基保留为未知片段。下面始终显示实际观测的碱基。</p>
+<table><thead><tr><th>模板</th><th>长度</th><th>具体碱基</th></tr></thead><tbody id="motifs"></tbody></table>
+<p id="model" class="muted"></p></section>
+<section><h2>有序划分</h2><div class="controls"><label>来源 <select id="sample"></select></label><label>平台 <select id="platform"></select></label><label>方向 <select id="direction"><option value="+">参考正向</option><option value="-">反向互补</option></select></label></div>
+<div class="controls"><select id="observation" aria-label="选择参考或观测片段"></select><select id="choice" aria-label="选择划分方案"><option value="best">最佳方案</option><option value="alternative">一个备选方案</option></select></div>
+<p id="status"></p><div id="path"></div><p class="muted">相邻且实际序列相同的完整单元合并显示；点击色块定位到表格。* 表示编辑匹配，? 表示未知，~ 表示末端残片。</p>
+<div class="tablewrap"><table><thead><tr><th>顺序</th><th>片段坐标</th><th>模板</th><th>模板 / 实际长度</th><th>实际碱基</th><th>匹配</th></tr></thead><tbody id="units"></tbody></table></div>
+</section>
+<details><summary>查看全部实际单元、导出和证据说明</summary><p class="note">实际单元表汇总主方案，观测数按样本、来源命名空间和 QNAME 去重。模板匹配及单条 read 的差异不能直接确认为真实变异。当前输入为已提供的位点 BAM，尚未证明包含全部竞争比对。分解分数未校准为概率；备选仅保留一个。</p>
+<p class="note">坐标为 0-based 半开区间，定位于当前展示方向的片段。未知和部分片段不计作完整单元。ABCA7 的边界仍是候选窗口；单元数不作为拷贝数或基因型。</p>
+<p><a href="motifs.tsv">模板表</a> · <a href="observed_units.tsv">全部实际单元</a> · <a href="partitions.tsv">全部有序划分</a> · <a href="summary.json">结果摘要</a></p>
+<div class="tablewrap"><table><thead><tr><th>模板</th><th>模板 / 实际长度</th><th>实际碱基</th><th>观测分子</th><th>HiFi 主比对分子</th></tr></thead><tbody id="variants"></tbody></table></div></details>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+'use strict';
+const data=JSON.parse(document.getElementById('data').textContent), s=data.summary, $=id=>document.getElementById(id);
+const rc=b=>[...b].reverse().map(x=>({A:'T',T:'A',C:'G',G:'C'}[x]||x)).join('');
+const escape=b=>String(b).replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
+function options(id,values){$(id).replaceChildren(...values.map(([value,label])=>new Option(label,value)));}
+$('definition').textContent=`${s.chrom}:${s.start}–${s.end} · 0-based 半开区间 · ${s.boundary_status==='confirmed'?'沿用目录边界':'候选窗口，未确认生物学边界'}`;
+$('counts').innerHTML=`<span><b>${s.bam_count}</b>输入 BAM</span><span><b>${s.molecules}</b>含可分解片段的分子</span><span><b>${s.fragments}</b>观测片段</span>`;
+$('model').textContent=`词典：${s.model_version||'本次发现结果'} · ${s.dictionary_mode==='frozen_apply'?'冻结应用，样本不会改变模板':'发现模式，模板可随输入改变'}`;
+options('sample',[['all','全部'],...Array.from(new Set(data.observations.map(o=>o.sample))).map(x=>[x,x])]);
+options('platform',[['all','全部'],...Array.from(new Set(data.observations.map(o=>o.platform))).map(x=>[x,x])]);
+function filter(){
+ const obs=data.observations.filter(o=>($('sample').value==='all'||o.sample===$('sample').value)&&($('platform').value==='all'||o.platform===$('platform').value));
+ options('observation',obs.map(o=>[o.id,o.id==='REFERENCE'?'参考序列':`${o.sample} · ${o.platform} · ${o.id} · ${o.units.reduce((n,u)=>n+u.observed_length,0)} bp`]));
+ render();
+}
+function render(){
+ const reverse=$('direction').value==='-', transform=b=>reverse?rc(b):b;
+ $('motifs').innerHTML=s.motifs.map(m=>`<tr><td>${escape(m.id)}</td><td>${m.length} bp</td><td class="bases">${transform(m.bases)}</td></tr>`).join('');
+ $('variants').innerHTML=data.observed_units.map(u=>`<tr><td>${escape(u.motif)}</td><td>${u.template_length||'—'} / ${u.observed_length} bp</td><td class="bases">${transform(u.bases)}</td><td>${u.molecules}</td><td>${u.hifi_primary_molecules}</td></tr>`).join('');
+ const o=data.observations.find(o=>o.id===$('observation').value);
+ if(!o){$('status').textContent='该筛选组合没有观测片段。';$('path').replaceChildren();$('units').replaceChildren();return;}
+ $('choice').options[1].disabled=!o.alternatives.length;
+ if(!o.alternatives.length)$('choice').value='best';
+ let units=$('choice').value==='alternative'?o.alternatives:o.units;
+ const length=units.reduce((n,u)=>n+u.observed_length,0);
+ units=(reverse?[...units].reverse():units).map((u,i)=>({...u,order:i+1,start:reverse?length-u.end:u.start,end:reverse?length-u.start:u.end,bases:transform(u.bases),template:transform(u.template)}));
+ const labels={both:'双侧局部锚点',left_only:'仅左锚点',right_only:'仅右锚点',cigar_only:'CIGAR 投影',reference:'参考区间',primary:'主比对',secondary:'次级比对',supplementary:'补充比对',spans_candidate_interval:'覆盖候选区间',left_partial:'左端部分覆盖',right_partial:'右端部分覆盖',internal_partial:'内部片段',split_reference_coverage:'跨参考跳跃',catalog_interval:'目录区间'};
+ $('status').textContent=`${length} bp · ${units.filter(u=>u.status==='unit').length} 个完整匹配单元 · ${labels[o.coverage]||o.coverage} · ${labels[o.anchor]||o.anchor}${o.id==='REFERENCE'?'':` · ${labels[o.alignment]||o.alignment} / MAPQ ${o.mapq}${o.mapq===255?'（不可用）':''}`} ${o.ambiguity?' · 存在并列划分，当前仅展示其中一个。':''}${o.id==='REFERENCE'?'':' · 定位依据限于已提供的 BAM。'}`;
+ const blocks=[];for(const u of units){let b=blocks[blocks.length-1];if(b&&u.status==='unit'&&b.unit.status==='unit'&&u.bases===b.unit.bases&&u.motif===b.unit.motif&&u.edits===b.unit.edits)b.count++;else blocks.push({unit:u,count:1});}
+ $('path').replaceChildren(...blocks.map(b=>{const u=b.unit,button=document.createElement('button');button.className=`unit ${u.motif==='M2'?'m2 ':''}${u.status!=='unit'?u.status:u.edits?'edited':''}`;button.textContent=`${u.bases}${u.status==='unknown'?'?':u.status==='partial'?'~':u.edits?'*':''}${b.count>1?' ×'+b.count:''}`;button.title=`${u.motif} · 实际 ${u.observed_length} bp`;button.onclick=()=>{document.querySelectorAll('tr.selected').forEach(t=>t.classList.remove('selected'));const tr=$('u'+u.order);tr.classList.add('selected');tr.scrollIntoView({block:'nearest',behavior:'smooth'});};return button;}));
+ $('units').innerHTML=units.map(u=>`<tr id="u${u.order}"><td>${u.order}</td><td>${u.start}–${u.end}</td><td>${escape(u.motif)} <span class="muted">${u.template}</span></td><td>${u.template_length||'—'} / ${u.observed_length} bp</td><td class="bases">${u.bases}</td><td>${u.status==='unknown'?'未知':u.status==='partial'?'末端残片':u.edits?'编辑距离 '+u.edits:'精确'}${u.ambiguity?' · 并列':''}</td></tr>`).join('');
+}
+$('sample').onchange=filter;$('platform').onchange=filter;$('observation').onchange=()=>{$('choice').value='best';render();};$('choice').onchange=render;$('direction').onchange=render;filter();
+</script></html>

@@ -40,7 +40,7 @@ def structure_text(bs, skeleton=False):
 
 # 记录参考序列、窗口精确周期和来源；目录边界标签不等于自动确认边界。
 def reference_report(locus, sequence, window, window_start, dictionary, segment, strand, fasta):
-    tokens=segment((sequence,dictionary,'HiFi'));bs=blocks(tokens)
+    tokens,annotation=segment((sequence,dictionary,'HiFi'),return_details=True);bs=blocks(tokens)
     for t in tokens:
         t['reference_start']=locus.start+t['start'];t['reference_end']=locus.start+t['end']
     repeats=exact_runs(window)
@@ -55,7 +55,7 @@ def reference_report(locus, sequence, window, window_start, dictionary, segment,
                 fasta_size=stat.st_size,fasta_mtime_ns=stat.st_mtime_ns,
                 fai_sha256=sha256(Path(str(fasta)+'.fai').read_bytes()).hexdigest(),
                 window_start=window_start,window_end=window_start+len(window),window_sequence=window,
-                tokens=tokens,blocks=bs,structure=structure_text(bs),exact_period_runs=repeats,
+                tokens=tokens,annotation=annotation,blocks=bs,structure=structure_text(bs),exact_period_runs=repeats,
                 unknown_bases=sum(len(t['exact_bases']) for t in tokens if t['status']=='unknown'),
                 boundary_review='crossing_exact_run' if any(h['crosses_core_boundary'] for h in repeats) else 'no_exact_crossing_detected',
                 method='seed-phase interruptions + independent exact periods 1..100bp, >=3 copies and >=12bp; final dictionary DP',
@@ -64,7 +64,7 @@ def reference_report(locus, sequence, window, window_start, dictionary, segment,
 
 # 用于强证据筛选：主比对、MAPQ≥20，并排除重复、QC失败和锚点次序冲突。
 def is_primary(f):
-    return f['alignment_type']=='primary' and f['mapq']>=20 and not set(f.get('flags',[]))&{'duplicate_flag','qc_fail','anchor_order_conflict_cigar_fallback'}
+    return f['alignment_type']=='primary' and 20<=f['mapq']<255 and not set(f.get('flags',[]))&{'duplicate_flag','qc_fail','anchor_order_conflict_cigar_fallback'}
 
 
 # 完整结构强证据还要求 HiFi、双锚点及两侧至少 90% 的局部锚点匹配。

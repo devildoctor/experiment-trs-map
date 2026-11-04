@@ -534,8 +534,12 @@ def extract_parsed(records, audit, sample, locus, profiles, min_mapq):
                         accepted_pairs.append((a,b,detail))
             info['unresolved_pairs'] = sorted(set(unresolved))
             if not accepted_pairs:
-                info['status'] = next((d['status'] for d in info['template_pairs']),
-                                      unresolved[0] if unresolved else 'missing_or_ambiguous_anchor')
+                reasons = sorted({d['status'] for d in info['template_pairs']} | set(unresolved))
+                info['failure_reasons'] = reasons
+                # An early weak template must not hide a later mapping conflict.
+                conflicts = ('competing_genomic_mapping','tied_cutpoints','competing_anchor_pair')
+                info['status'] = next((s for s in conflicts if s in reasons),
+                                      reasons[0] if reasons else 'missing_or_ambiguous_anchor')
                 continue
             # 各合格长度模板必须给出同一对切点，长侧翼不会覆盖短侧翼的冲突。
             cuts = {(a['end'],b['start']) for a,b,_ in accepted_pairs}

@@ -129,6 +129,17 @@ class AnchorTests(unittest.TestCase):
         self.assertFalse(reads)
         self.assertEqual(decisions[0]['status'],'unresolved_molecule_conflict')
 
+    def test_later_template_conflict_is_not_hidden_by_first_weak_pair(self):
+        with patch.object(a,'localization',return_value=(0,[])), patch.object(
+                a,'competing_mapping',side_effect=lambda provider,hit,template,group,locus:
+                template['length']==max(a.LENGTHS)):
+            reads,_,decisions=self.extract([self.rec()])
+        self.assertFalse(reads)
+        self.assertEqual(decisions[0]['status'],'unresolved_molecule_conflict')
+        reasons=decisions[0]['observations'][0]['failure_reasons']
+        self.assertIn('sequence_only_unverified',reasons)
+        self.assertIn('competing_genomic_mapping',reasons)
+
     def test_large_expansion_does_not_require_wider_bam_region(self):
         repeat='ACGT'*1250
         reads,_,_=self.extract([self.rec(seq=self.left+repeat+self.right,cigar='500M4984I516M')])
