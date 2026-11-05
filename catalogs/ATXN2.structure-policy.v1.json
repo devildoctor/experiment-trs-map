@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "version": "ATXN2.display_loss.v1",
+  "model_version": "ATXN2.GRCh38.structure.v1",
+  "allowed_template_positions": {
+    "M1": [
+      1
+    ],
+    "M2": [
+      1
+    ]
+  },
+  "reason": "Only conserved interior template positions, never known subtype-discriminating columns; original/target protected motif strings must match. All ends, terminals, tied partitions and repeated edited subtypes remain protected.",
+  "scope": "Explicit display-loss convention, not sequencing-error correction or proof of biological neutrality."
+}

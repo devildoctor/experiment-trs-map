@@ -12,6 +12,8 @@
 
 新增完整观测序列的 **GFA S/L/P 结构图**：`scripts/vntrpathgraph_cli.py`，输出共享节点、分支、跳跃边与静态 SVG/PNG，默认无损；可通过显式逐位替换规则生成带损失台账的结构图。详见[设计、运行与限制](docs/PATH_SEQUENCE_GRAPH.zh-CN.md)。本功能分支为 `feat/path-structure-graph-20261105`。
 
+新增 **结构优先模式** `--graph-mode structure`：接入冻结单元划分，以重复段/模块建图，局部保留划分歧义，支持每条 path 累计 0–2 bp 的可逆显示归并。见[使用与规则](docs/STRUCTURE_FIRST.zh-CN.md)和[ATXN2/D1S80 计算节点验证](docs/STRUCTURE_FIRST_PILOT_20261106.zh-CN.md)。分支：`feat/structure-first-20261106`。
+
 ## Versions and branches
 
 **当前分支：`feat/path-structure-graph-20261105`** — 基于冻结划分分支新增序列结构 GFA 与静态图；沿用此前的歧义标记、目录校验、空证据导出、分子命名空间与阈值修复。终端模式开启后CN仍保留NA。

@@ -135,8 +135,8 @@ def compact_graph(graph):
     nodes, edges, paths = (graph[k] for k in ('nodes', 'edges', 'paths'))
     before, after = defaultdict(set), defaultdict(set)
     for a, b in edges: after[a].add(b); before[b].add(a)
-    starts = {w[0] for w in paths.values() if w}
-    ends = {w[-1] for w in paths.values() if w}
+    starts = {w[0] for w in paths.values() if w} | set(graph.get('barriers', ()))
+    ends = {w[-1] for w in paths.values() if w} | set(graph.get('barriers', ()))
     def next_node(n):
         if n in ends or len(after[n]) != 1: return None
         target = next(iter(after[n]))
@@ -211,10 +211,12 @@ def graph_support(graph, records):
             {e: dict(paths=sorted(ps), molecules=count(ps)) for e, ps in edge_paths.items()})
 
 
-def write_gfa(path, graph, records, mode, represented):
+def write_gfa(path, graph, records, mode, represented, loss_ledger=None):
     nstats, estats = graph_support(graph, records)
     original = {r['id']: r['sequence'] for r in records}
     losses = {p: sum(a != b for a,b in zip(original[p],s)) for p,s in represented.items()}
+    explicit = {r['path']:r for r in loss_ledger or []}
+    if loss_ledger is not None: losses = {p:explicit.get(p,{}).get('substitutions',0) for p in represented}
     lines = ['H\tVN:Z:1.0\tgm:Z:'+mode,
              '# S contains literal bases; L is 0M adjacency; only embedded P walks are observations.',
              '# mc=distinct molecule keys; pc=distinct raw paths; vc=path visits; lb=explicit substitutions.']
@@ -225,8 +227,13 @@ def write_gfa(path, graph, records, mode, represented):
         lines.append(f'L\t{a}\t+\t{b}\t+\t0M\tmc:i:{v["molecules"]}\tps:Z:'+','.join(v['paths']))
     by_id={r['id']:r for r in records}
     for p,w in sorted(graph['paths'].items()):
+        extra=''
+        if loss_ledger is not None:
+            loss=explicit.get(p,{})
+            extra=(f'\tle:i:{loss.get("loss_bp",0)}\tli:i:{loss.get("insertions",0)}'
+                   f'\tld:i:{loss.get("deletions",0)}\tol:i:{len(original[p])}\trl:i:{len(represented[p])}')
         lines.append(f'P\t{p}\t'+','.join(f'{n}+' for n in w)+
-                     f'\t*\tmc:i:{len(by_id[p]["molecules"])}\tlb:i:{losses[p]}')
+                     f'\t*\tmc:i:{len(by_id[p]["molecules"])}\tlb:i:{losses[p]}'+extra)
     path.write_text('\n'.join(lines)+'\n',encoding='ascii')
 
 

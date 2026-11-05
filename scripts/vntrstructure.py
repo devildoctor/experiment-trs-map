@@ -110,7 +110,7 @@ def exact_tandem_units(sequence,min_length=2,max_length=200):
 
 
 # 双向模板进行动态规划；每个 token 保存实际碱基，并记录主方案和一个备选。
-def segment(task,return_details=False):
+def segment(task,return_details=False,collect_optimal=False):
     """Seed-guided exact-slice DP. Gap/length penalties exceed UNKNOWN cost.
 
     Unknown=1/base; substitutions cost min(3, 0.6*motif length). Both motif
@@ -143,8 +143,11 @@ def segment(task,return_details=False):
                     if 0<=start<n:candidates[start].add(v)
                 hit=sequence.find(s[offset:offset+k],hit+1)
     dp=TwoPaths(n);cost=dp.cost
+    offered={} if collect_optimal else None
     def update(end,value,step):
-        dp.offer(step[0],end,value-cost[step[0]],(step[0],end)+step[1:])
+        edge_cost=value-cost[step[0]]; edge=(step[0],end)+step[1:]
+        if offered is not None:offered[edge]=edge_cost
+        dp.offer(step[0],end,edge_cost,edge)
     for i in range(n):
         update(i+1,cost[i]+1,(i,-1,'unknown',0))
         for v in sorted(candidates.get(i,())):
@@ -165,6 +168,28 @@ def segment(task,return_details=False):
             if minimum<=n-i<len(s) and sequence[i:]==s[:n-i]:
                 update(n,cost[i]+.2,(i,v,'partial',0))
     audit=dp.audit();primary=dp.trace();alternate=dp.trace(1)
+    mandatory=None
+    if collect_optimal:
+        # Localize uncertainty using every minimum-cost path in the candidate
+        # DAG, rather than claiming that the two retained traces exhaust it.
+        outgoing=defaultdict(list)
+        for edge,weight in offered.items():outgoing[edge[0]].append((edge,weight))
+        suffix=[float('inf')]*(n+1);suffix[n]=0.
+        for i in range(n-1,-1,-1):
+            suffix[i]=min(weight+suffix[edge[1]] for edge,weight in outgoing[i])
+        optimal=defaultdict(list)
+        for edge,weight in offered.items():
+            if abs(cost[edge[0]]+weight+suffix[edge[1]]-cost[n])<1e-8:
+                optimal[edge[0]].append(edge)
+        forward=[0]*(n+1);backward=[0]*(n+1);forward[0]=1;backward[n]=1
+        for i in range(n):
+            for edge in optimal[i]:forward[edge[1]]+=forward[i]
+        for i in range(n-1,-1,-1):
+            backward[i]=sum(backward[edge[1]] for edge in optimal[i])
+        mandatory={edge for edges in optimal.values() for edge in edges
+                   if forward[edge[0]]*backward[edge[1]]==forward[n]}
+        audit['ambiguity_scope']='all_minimum_cost_paths_in_seed_candidate_DAG'
+        audit['optimal_paths_at_least_two']=forward[n]>1
     def convert(steps,other_steps):
         other_set=set(other_steps)
         result=[]
@@ -177,7 +202,8 @@ def segment(task,return_details=False):
                    motif=m['id'],base=m['base'],template=s,orientation=orientation,family=family,
                    phase=phase,phase_policy='fixed_template_phase',canonical_orientation=canonical_orientation,
                    orientation_reference='catalog_template',phase_reference='canonical_family',edit_distance=d,
-                   annotation_ambiguity=audit['annotation_ambiguity'] and (start,end,v,status,d) not in other_set)
+                   annotation_ambiguity=((start,end,v,status,d) not in mandatory if mandatory is not None else
+                                         audit['annotation_ambiguity'] and (start,end,v,status,d) not in other_set))
             if status=='unknown' and result and result[-1]['status']=='unknown':
                 result[-1]['end']=end;result[-1]['exact_bases']+=t['exact_bases']
                 result[-1]['annotation_ambiguity']|=t['annotation_ambiguity']
@@ -185,6 +211,13 @@ def segment(task,return_details=False):
         assert ''.join(t['exact_bases'] for t in result)==sequence
         return result
     result=convert(primary,alternate)
+    if collect_optimal:
+        intervals=[]
+        for t in result:
+            if not t['annotation_ambiguity']:continue
+            if intervals and intervals[-1][1]==t['start']:intervals[-1][1]=t['end']
+            else:intervals.append([t['start'],t['end']])
+        audit['ambiguity_intervals']=intervals
     audit['metrics']=base_metrics(result)
     audit['alternative']=convert(alternate,primary) if alternate else []
     audit['alternative_metrics']=base_metrics(audit['alternative']) if alternate else None

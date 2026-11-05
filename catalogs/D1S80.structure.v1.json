@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "version": "D1S80.GRCh38.structure.v1",
+  "locus": "D1S80",
+  "assembly": "GRCh38",
+  "chrom": "chr1",
+  "start": 2459279,
+  "end": 2459743,
+  "boundary_status": "confirmed",
+  "coordinate_system": "0-based half-open",
+  "orientation": "reference_forward",
+  "phase_policy": "fixed_template_phase",
+  "algorithm": "seed_dp_v2",
+  "motifs": [
+    {
+      "id": "U01",
+      "sequence": "CCTGGTGGTCCTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U02",
+      "sequence": "CCTGGTGGTTCTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U03",
+      "sequence": "GCCGGTGGTCCTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U04",
+      "sequence": "GCCGGTGGTCTTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U05",
+      "sequence": "GCCTGTGGTCCTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U06",
+      "sequence": "GCCTGTGGTCTTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U07",
+      "sequence": "GCTGGTGGTCCTCCTT",
+      "length": 16
+    },
+    {
+      "id": "U08",
+      "sequence": "GTGGTCTTCCTTTCCG",
+      "length": 16
+    },
+    {
+      "id": "U09",
+      "sequence": "TCCGGTGGTCCTCCTT",
+      "length": 16
+    }
+  ],
+  "display_labels": {
+    "U01": "U01",
+    "U02": "U02",
+    "U03": "U03",
+    "U04": "U04",
+    "U05": "U05",
+    "U06": "U06",
+    "U07": "U07",
+    "U08": "U08",
+    "U09": "U09"
+  },
+  "interruptions": [],
+  "terminal_templates": [
+    {
+      "id": "RT",
+      "sequence": "GCCTGTGGTCTGTCTT",
+      "samples": [
+        "LCL5",
+        "LCL6",
+        "LCL7",
+        "LCL8"
+      ],
+      "role": "right_terminal",
+      "support_by_sample": {
+        "LCL5": 14,
+        "LCL6": 16,
+        "LCL7": 17,
+        "LCL8": 12
+      }
+    }
+  ],
+  "provenance": {
+    "inner_source": "runs-result/20261021T090055Z_vntr-dbg_D1S80/results/pointgraph/D1S80/motifs.tsv",
+    "inner_sha256": "110ef0feb1abe969b572afd35f58e75b5e0a2af0dda5f5dfd43dfc5aa8b8e7bc",
+    "terminal_source": "runs-result/20261023T141043Z_d1s80-terminal-units/results/D1S80/terminal_unit_candidates.tsv",
+    "terminal_sha256": "683acd89028c0ff22c205b53645d62af58f01573dcf8fc06f93e8322ac059f47",
+    "scope": "Frozen legacy inner templates and sample-specific exact right-terminal compatibility. No template learning, no new terminal support claim, no CN."
+  }
+}

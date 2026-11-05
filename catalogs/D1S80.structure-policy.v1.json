@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "version": "D1S80.display_loss.v1",
+  "model_version": "D1S80.GRCh38.structure.v1",
+  "allowed_template_positions": {
+    "U01": [
+      11,
+      13
+    ],
+    "U02": [
+      11,
+      13
+    ],
+    "U03": [
+      11,
+      13
+    ],
+    "U04": [
+      11,
+      13
+    ],
+    "U05": [
+      11,
+      13
+    ],
+    "U06": [
+      11,
+      13
+    ],
+    "U07": [
+      11,
+      13
+    ],
+    "U08": [
+      11,
+      13
+    ],
+    "U09": [
+      11,
+      13
+    ]
+  },
+  "reason": "Only conserved interior template positions, never known subtype-discriminating columns; original/target protected motif strings must match. All ends, terminals, tied partitions and repeated edited subtypes remain protected.",
+  "scope": "Explicit display-loss convention, not sequencing-error correction or proof of biological neutrality."
+}

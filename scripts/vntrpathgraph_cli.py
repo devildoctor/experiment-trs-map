@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import textwrap
 
 from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, load_source_namespaces, locus_output_dir
 from vntrreads import collect_reads, write_table
@@ -71,13 +72,28 @@ def render_preview(destination, locus, graph, records, all_records, losses, dot)
     title+='\nObserved interval sequences; alignment correspondence is model-dependent; length is labeled, not to scale.'
     title+='\nEdge numbers identify paths (1-3 means paths 1,2,3); gray edge = all displayed paths.'
     if changed: title+='\n* = contains explicitly substituted bases; see losses.tsv.'
+    if graph.get('structure_mode'):
+        loss_map={x['path']:x for x in losses}
+        title=f'{locus} | structure-first | {len(records)}/{len(all_records)} original paths'
+        for r in records:
+            p=r['id'];loss=loss_map.get(p,{})
+            length=sum(len(graph['nodes'][n]) for n in graph['paths'][p])
+            title+=f'\n{short[p]}={p}: n={len(r["molecules"])}, {len(r["sequence"])} -> {length} bp'
+            title+=f'; S/I/D={loss.get("substitutions",0)}/{loss.get("insertions",0)}/{loss.get("deletions",0)}'
+        title+='\n~ = observed unit differs from template; * = explicit display loss.'
+        title+='\nUNRESOLVED = partition uncertain; ALIGNMENT ? = correspondence uncertain.'
+        title+='\nEdge numbers identify original paths; only listed P walks are observations.'
+        legend=graph.get('dictionary_legend',[])
+        title+='\n'+'\n'.join(' ; '.join(legend[i:i+3]) for i in range(0,len(legend),3))
     defaults=['graph [rankdir=LR, bgcolor="white", nodesep=0.25, ranksep=0.38, fontname="DejaVu Sans", fontsize=13];',
               'node [shape=box, style="rounded,filled", fillcolor="#EEF3F7", color="#526978", fontname="DejaVu Sans", fontsize=10, margin="0.08,0.05"];',
               'edge [fontname="DejaVu Sans", fontsize=9, arrowsize=0.6];']
     node_lines={}
     for n,s in sorted(graph['nodes'].items()):
-        label=f'{n} | {len(s)} bp'+(' *' if n in changed else '')+'\n'+sequence_label(s)
-        node_lines[n]=f's{n} [label='+json.dumps(label)+'];'
+        expression=graph.get('labels',{}).get(n,sequence_label(s))
+        label=f'{n} | {len(s)} bp'+(' *' if n in changed else '')+'\n'+'\n'.join(textwrap.wrap(expression,42))
+        extra=', style="rounded,dashed,filled", fillcolor="#FFF4D6"' if graph.get('node_features',{}).get(n,{}).get('uncertain') else ''
+        node_lines[n]=f's{n} [label='+json.dumps(label)+extra+'];'
     edge_attributes={}
     for (a,b), v in sorted(estats.items()):
         ids=v['paths']; shared=len(ids)==len(names)
@@ -226,10 +242,18 @@ def main():
     p.add_argument('--platform',action='append',choices=['HiFi','ONT','ONTUL'])
     p.add_argument('--min-mapq',type=int,default=20);p.add_argument('--preview-paths',type=int,default=10)
     p.add_argument('--merge-rules',type=Path);p.add_argument('--loss-budget',type=float,default=0)
+    p.add_argument('--graph-mode',choices=['sequence','structure'],default='sequence')
+    p.add_argument('--locus-model',type=Path);p.add_argument('--structure-policy',type=Path)
+    p.add_argument('--max-loss-bp',type=int,default=0,choices=[0,1,2])
     p.add_argument('--dot',default='dot')
     args=p.parse_args()
     if not 0<=args.min_mapq<=254 or not 1<=args.preview_paths<=10 or not 0<=args.loss_budget<=1:p.error('Invalid limits')
     if args.bam_dir and (not args.reference or not args.catalog):p.error('BAM input needs --reference and --catalog')
+    if args.graph_mode=='structure':
+        if not args.locus_model or not args.structure_policy:p.error('Structure mode needs --locus-model and --structure-policy')
+        if args.merge_rules or args.loss_budget:p.error('Use --max-loss-bp for structure mode')
+    elif args.locus_model or args.structure_policy or args.max_loss_bp:
+        p.error('Structure options require --graph-mode structure')
     destination=locus_output_dir(args.out,args.locus);destination.mkdir(parents=True,exist_ok=False)
     dump(destination/'summary.json',dict(status='running',locus=args.locus))
     if args.structures_json:
@@ -237,6 +261,9 @@ def main():
         if payload['locus']['name']!=args.locus:raise ValueError('Input locus mismatch')
         rows=payload['rows'];metadata=dict(locus=payload['locus'],source=str(args.structures_json),
                     source_sha256=sha256(args.structures_json.read_bytes()).hexdigest())
+        if args.graph_mode=='structure':
+            from vntrgraph import Locus
+            locus=Locus(**payload['locus'])
     else:
         selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
         if len(selected)!=1:raise ValueError('Unknown locus')
@@ -254,7 +281,15 @@ def main():
     metadata['parameters']={k:str(v) for k,v in vars(args).items()}
     metadata['source_hashes']={name:sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
                               for name in ['vntrpathgraph.py','vntrpathgraph_cli.py','vntrreads.py','vntrgraph.py']}
-    summary=export_graphs(destination,args.locus,records,excluded,metadata,args.preview_paths,policy,args.loss_budget,args.dot)
+    if args.graph_mode=='structure':
+        from vntrpathstructure_export import export_structure
+        for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py']:
+            metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+        summary=export_structure(destination,locus,records,excluded,metadata,args.locus_model,args.structure_policy,
+            args.max_loss_bp,args.preview_paths,args.dot,rows if args.structures_json else None,
+            payload.get('audit') if args.structures_json else None)
+    else:
+        summary=export_graphs(destination,args.locus,records,excluded,metadata,args.preview_paths,policy,args.loss_budget,args.dot)
     print(json.dumps({k:summary[k] for k in ['locus','status','paths','molecules','graph_stats','substituted_bases','preview']},ensure_ascii=False),flush=True)
 
 
