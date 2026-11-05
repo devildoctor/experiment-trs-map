@@ -10,9 +10,11 @@
 
 程序独立实现，不依赖 danbing-tk、TRGT、LongTR、vamos 或 PGGB。当前属于研究实现；图路径、局部支持和单元注释不能自动视为已验证的基因型。
 
+新增完整观测序列的 **GFA S/L/P 结构图**：`scripts/vntrpathgraph_cli.py`，输出共享节点、分支、跳跃边与静态 SVG/PNG，默认无损；可通过显式逐位替换规则生成带损失台账的结构图。详见[设计、运行与限制](docs/PATH_SEQUENCE_GRAPH.zh-CN.md)。本功能分支为 `feat/path-structure-graph-20261105`。
+
 ## Versions and branches
 
-**当前分支：`fix/vntr-review-20261029`** — 当前修复版本：基于终端模板分支，修复歧义标记、目录校验、空证据导出、分子命名空间与阈值显示。终端模式开启后CN全部保留NA。
+**当前分支：`feat/path-structure-graph-20261105`** — 基于冻结划分分支新增序列结构 GFA 与静态图；沿用此前的歧义标记、目录校验、空证据导出、分子命名空间与阈值修复。终端模式开启后CN仍保留NA。
 
 | 分支 | 用途 |
 |---|---|
