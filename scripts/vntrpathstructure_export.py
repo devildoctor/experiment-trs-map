@@ -54,7 +54,10 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
     write_table(destination/'excluded.tsv',excluded,['molecule','fragment','reason'])
     write_table(destination/'members.tsv',[dict(path=r['id'],**{k:v for k,v in o.items() if k!='sequence'})
         for r in records for o in r['observations']],['path','molecule','sample','platform','namespace','read_id','row_id',
-        'record_id','fragment','bam','qstart','qend','mapq','anchor_scores','strand','reference_interval','boundary_status'])
+        'record_id','fragment','bam','qstart','qend','mapq','anchor_scores','strand','reference_interval','boundary_status']+
+        (['extraction_version','boundary_model_sha256','extraction_status','core_status','analysis_status',
+          'core_outer_relation','core_ambiguous','analysis_ambiguous','threshold_path_dependent',
+          'normalization_reason','core_candidate_pairs'] if metadata.get('extraction_version') else []))
     write_table(destination/'merge_decisions.tsv',decisions,['path','target_path','accepted','reason'])
     write_table(destination/'losses.tsv',losses,['path','target_path','loss_bp','substitutions','insertions','deletions',
                 'original_length','represented_length','fraction','positions','events','policy_version','reason'])
@@ -104,5 +107,7 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
 <p><a href="{locus.name}.structure.gfa">结构 GFA</a> · <a href="{locus.name}.exact.gfa">零损失结构 GFA</a> · <a href="paths.tsv">路径表</a> · <a href="structure_groups.tsv">路线成员与精确支持</a> · <a href="losses.tsv">差异账本</a></p>
 <table><tr><th>Path</th><th>路线</th><th>原始结构表达</th><th>原始 bp</th><th>表示 bp</th><th>分子</th><th>损失 bp</th><th>注释状态</th></tr>{table}</table>
 <p>图中节点存固定实际碱基。只有完整 P 列表代表纳入的观测，其他可走组合不代表额外序列。模型单元数不是基因型或已验证拷贝数。</p>'''
+    if metadata.get('extraction_version'):
+        html+='<p><a href="contexts.html">外围观测与核心关联</a> · <a href="boundary_model.json">冻结边界模型</a> · <a href="extraction_audit.jsonl">切点及歧义证据</a></p>'
     (destination/'index.html').write_text(html,encoding='utf-8')
     return summary

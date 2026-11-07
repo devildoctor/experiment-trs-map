@@ -92,7 +92,7 @@ def near_anchor(flank, sequence, expected, identity):
 
 
 # 逐条比对记录提取实际片段；锚点不可用时回退到 CIGAR，并保留限制状态。
-def extract_record(fields, locus, left, right):
+def extract_record(fields, locus, left, right, flank_context=None):
     name, flag, chrom, pos, mapq, cigar = fields[:6]
     flag, pos, mapq = int(flag), int(pos)-1, int(mapq)
     sequence = fields[9].upper()
@@ -112,6 +112,12 @@ def extract_record(fields, locus, left, right):
     meta['flags'] += flags
     if not overlap:
         return dict(meta, status='flank_only')
+    if flank_context is not None:
+        meta['coverage'] = ('split_reference_coverage' if 'reference_skip' in flags else
+                            'spans_candidate_interval' if ref[0] <= locus.start and ref[1] >= locus.end else
+                            'left_partial' if ref[0] <= locus.start else
+                            'right_partial' if ref[1] >= locus.end else 'internal_partial')
+        return flank_context.extract(meta, sequence, query, ref, locus.boundary_status)
     if query is None:
         return dict(meta, status='no_observed_repeat_bases', reference_interval=ref)
     q0, q1 = query
@@ -147,7 +153,7 @@ def row_molecule_key(row):
 
 
 # 读取整个 BAM，按 namespace/QNAME 建行；补充/次级比对独立保留，不拼接。
-def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, records_file, namespace=None):
+def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, records_file, namespace=None, flank_context=None):
     left = reference.fetch(locus.chrom, max(0,locus.start-anchor_length), locus.start)
     right = reference.fetch(locus.chrom, locus.end, min(reference.contig_length(locus.chrom),locus.end+anchor_length))
     grouped, audit, read_groups = {}, Counter(), {}
@@ -183,7 +189,7 @@ def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, r
                                              namespace=ns, molecule_key=compact([sample, ns, f[0]]),
                                              platform=platform, bam=bam.name, fragments=[], records=[], record_count=0)
                 row = grouped[group_key]
-                observation = extract_record(f,locus,left,right)
+                observation = extract_record(f,locus,left,right,flank_context)
                 observation.update(namespace=ns, molecule_key=row['molecule_key'], read_group=read_group, library=library)
                 observation['record_index'] = record_index
                 record_id = row['id']+f'_rec{row["record_count"]+1}'
@@ -215,12 +221,12 @@ def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, r
 
 
 # 依次收集各 BAM 的全部行和数量审计；跨 BAM 的重复行在此不删除。
-def collect_reads(bams, locus, reference, samtools, anchor_length, records_file, namespaces=None):
+def collect_reads(bams, locus, reference, samtools, anchor_length, records_file, namespaces=None, flank_context=None):
     rows, audits = [], []
     namespaces = namespaces or {}
     for sample, platform, bam in bams:
         incoming, audit = read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, records_file,
-                                   namespaces.get(str(bam.resolve())))
+                                   namespaces.get(str(bam.resolve())), flank_context)
         rows.extend(incoming)
         audits.append(dict(bam=str(bam), sample=sample, platform=platform, **audit))
         print(f'{locus.name} {sample}/{platform}: {len(incoming)} read rows, {audit["rows_with_repeat_sequence"]} with locus sequence', flush=True)

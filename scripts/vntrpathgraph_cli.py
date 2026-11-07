@@ -178,7 +178,10 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
     write_table(destination/'members.tsv',[dict(path=r['id'],**{k:v for k,v in o.items() if k!='sequence'})
                 for r in records for o in r['observations']],
                 ['path','molecule','sample','platform','read_id','namespace','bam','row_id','record_id','fragment',
-                 'qstart','qend','mapq','anchor_scores','strand','reference_interval','boundary_status'])
+                 'qstart','qend','mapq','anchor_scores','strand','reference_interval','boundary_status']+
+                (['extraction_version','boundary_model_sha256','extraction_status','core_status','analysis_status',
+                  'core_outer_relation','core_ambiguous','analysis_ambiguous','threshold_path_dependent',
+                  'normalization_reason','core_candidate_pairs'] if metadata.get('extraction_version') else []))
     write_table(destination/'excluded.tsv',excluded,['molecule','fragment','reason'])
     write_table(destination/'losses.tsv',losses,['path','target_path','substitutions','fraction','positions','source_bases','target_bases','reason'])
     nstats,estats=graph_support(structure,records)
@@ -228,6 +231,8 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
     if preview['status']=='rendered':html+=f'<a href="{locus}.preview.svg"><img src="{locus}.preview.svg" alt="{locus} 静态序列图，节点为实际碱基片段，边标出经过的路径"></a>'
     html+='<table><tr><th>Path</th><th>图中</th><th>长度 bp</th><th>分子数</th><th>HiFi 分子数</th><th>结构组</th><th>替换 bp</th></tr>'+table+'</table>'
     html+='<p>一个最优比对用于组织图的对应位置，并列对应未枚举；序列重建通过不证明划分或同源位置唯一。输入来自已有位点 BAM，未完成全基因组竞争定位核查。图中其他可走通组合不等于实际观测，不输出基因型。</p>'
+    if metadata.get('extraction_version'):
+        html+='<p><a href="contexts.html">外围观测与核心关联</a> · <a href="boundary_model.json">冻结边界模型</a> · <a href="extraction_audit.jsonl">切点及歧义证据</a></p>'
     (destination/'index.html').write_text(html,encoding='utf-8')
     return summary
 
@@ -246,9 +251,18 @@ def main():
     p.add_argument('--locus-model',type=Path);p.add_argument('--structure-policy',type=Path)
     p.add_argument('--max-loss-bp',type=int,default=0,choices=[0,1,2])
     p.add_argument('--dot',default='dot')
+    p.add_argument('--flank-boundary-model',type=Path,help='Apply an explicitly frozen flank-v2 model; legacy extraction remains the default')
     args=p.parse_args()
     if not 0<=args.min_mapq<=254 or not 1<=args.preview_paths<=10 or not 0<=args.loss_budget<=1:p.error('Invalid limits')
     if args.bam_dir and (not args.reference or not args.catalog):p.error('BAM input needs --reference and --catalog')
+    if args.flank_boundary_model and (not args.reference or not args.catalog):p.error('Flank model validation needs --reference and --catalog')
+    flank_context=None
+    if args.flank_boundary_model:
+        from vntrflankalign import load_context
+        selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
+        if len(selected)!=1:p.error('Unknown flank model locus')
+        with IndexedFastaReference(args.reference) as reference:
+            flank_context=load_context(args.flank_boundary_model,selected[0],reference)
     if args.graph_mode=='structure':
         if not args.locus_model or not args.structure_policy:p.error('Structure mode needs --locus-model and --structure-policy')
         if args.merge_rules or args.loss_budget:p.error('Use --max-loss-bp for structure mode')
@@ -261,6 +275,14 @@ def main():
         if payload['locus']['name']!=args.locus:raise ValueError('Input locus mismatch')
         rows=payload['rows'];metadata=dict(locus=payload['locus'],source=str(args.structures_json),
                     source_sha256=sha256(args.structures_json.read_bytes()).hexdigest())
+        if flank_context:
+            if payload.get('audit',{}).get('boundary_model_sha256')!=flank_context.model_hash:
+                raise ValueError('Imported flank boundary model mismatch')
+            if any(f.get('extraction_version')!=flank_context.model['extraction_version'] or
+                   f.get('boundary_model_sha256')!=flank_context.model_hash for r in rows for f in r['fragments']):
+                raise ValueError('Imported fragment extraction version mismatch')
+        elif any(f.get('extraction_version') for r in rows for f in r['fragments']):
+            raise ValueError('Imported flank-v2 results require their --flank-boundary-model')
         if args.graph_mode=='structure':
             from vntrgraph import Locus
             locus=Locus(**payload['locus'])
@@ -272,15 +294,23 @@ def main():
         namespaces=load_source_namespaces(args.sources)
         with IndexedFastaReference(args.reference) as reference:
             with (destination/'records.jsonl').open('w',encoding='utf-8') as records_file:
-                rows,audits=collect_reads(bams,locus,reference,args.samtools,100,records_file,namespaces)
+                rows,audits=collect_reads(bams,locus,reference,args.samtools,100,records_file,namespaces,flank_context)
         metadata=dict(locus=asdict(locus),bam_audits=audits,bam_count=len(bams),
             reference=str(args.reference),catalog_sha256=sha256(args.catalog.read_bytes()).hexdigest(),
             input_files=[dict(path=str(b),bytes=b.stat().st_size,mtime_ns=b.stat().st_mtime_ns) for _,_,b in bams])
     records,excluded=select_paths(rows,args.min_mapq,set(args.platform) if args.platform else None)
+    if flank_context:
+        from vntrflankalign import write_flank_outputs
+        metadata.update(extraction_version=flank_context.model['extraction_version'],boundary_model_sha256=flank_context.model_hash)
+        dump(destination/'boundary_model.json',flank_context.model)
+        write_flank_outputs(destination,rows,records)
     policy=json.loads(args.merge_rules.read_text(encoding='utf-8')) if args.merge_rules else None
     metadata['parameters']={k:str(v) for k,v in vars(args).items()}
     metadata['source_hashes']={name:sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
                               for name in ['vntrpathgraph.py','vntrpathgraph_cli.py','vntrreads.py','vntrgraph.py']}
+    if flank_context:
+        for name in ['vntrflankalign.py','vntrflankbounds.py']:
+            metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
     if args.graph_mode=='structure':
         from vntrpathstructure_export import export_structure
         for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py']:

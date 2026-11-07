@@ -30,11 +30,15 @@ def select_paths(rows, min_mapq=20, platforms=None):
             mq = f.get('mapq')
             if mq is None or mq == 255 or not min_mapq <= mq <= 254: reasons.append('mapq_not_qualified')
             if f.get('flag', 0) & (4 | 256 | 512 | 1024 | 2048): reasons.append('alignment_flag')
-            if f.get('coverage') != 'spans_candidate_interval': reasons.append('not_full_interval')
-            if f.get('anchor') != 'both': reasons.append('not_two_anchors')
-            identity = .90 if row['platform'] == 'HiFi' else .80
             scores = f.get('anchor_scores', [])
-            if len(scores) != 2 or any(s is None or s < identity for s in scores): reasons.append('weak_anchor')
+            if f.get('extraction_version'):
+                from vntrflankalign import core_eligible
+                if not core_eligible(f): reasons.append(f.get('extraction_status','incomplete_core'))
+            else:
+                if f.get('coverage') != 'spans_candidate_interval': reasons.append('not_full_interval')
+                if f.get('anchor') != 'both': reasons.append('not_two_anchors')
+                identity = .90 if row['platform'] == 'HiFi' else .80
+                if len(scores) != 2 or any(s is None or s < identity for s in scores): reasons.append('weak_anchor')
             bad = {'reference_skip', 'anchor_order_conflict_cigar_fallback'} & set(f.get('flags', []))
             reasons.extend(sorted(bad))
             sequence = f.get('sequence', '')
@@ -48,6 +52,10 @@ def select_paths(rows, min_mapq=20, platforms=None):
                     anchor_scores=scores, mapq=mq, qstart=f['qstart'], qend=f['qend'],
                     record_id=f.get('record_id'), strand=f.get('strand'),
                     reference_interval=f.get('reference_interval'), boundary_status=f.get('boundary_status')))
+                if f.get('extraction_version'):
+                    from vntrflankalign import FIELDS
+                    candidates[molecule][-1].update({k:f.get(k) for k in FIELDS})
+                    candidates[molecule][-1]['core_candidate_pairs'] = [[p['qstart'],p['qend']] for p in f['core_anchor_evidence']['pairs']]
     grouped = defaultdict(list)
     for molecule, observations in sorted(candidates.items()):
         sequences = {o['sequence'] for o in observations}

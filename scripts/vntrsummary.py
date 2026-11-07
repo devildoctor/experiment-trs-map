@@ -69,6 +69,11 @@ def is_primary(f):
 
 # 完整结构强证据还要求 HiFi、双锚点及两侧至少 90% 的局部锚点匹配。
 def strong_boundary(row,f):
+    if f.get('extraction_version'):
+        from vntrflankalign import core_eligible
+        return (row['platform']=='HiFi' and is_primary(f) and core_eligible(f)
+                and 'reference_skip' not in f.get('flags',[])
+                and not f.get('core_ambiguous') and not f.get('threshold_path_dependent'))
     return row['platform']=='HiFi' and is_primary(f) and f['coverage']=='spans_candidate_interval' and f['anchor']=='both' and all(x is not None and x>=.9 for x in f.get('anchor_scores',[1,1]))
 
 
@@ -116,7 +121,10 @@ def structural_summary(rows,minimum=3,min_fraction=.10):
         for f in row['fragments']:
             if strong_boundary(row,f):denominators[row['sample']].add(molecular)
             bs=blocks(f['tokens']);reason=[]
-            if f['coverage']!='spans_candidate_interval':reason.append('partial_coverage')
+            if f.get('extraction_version'):
+                from vntrflankalign import core_eligible
+                if not core_eligible(f):reason.append('incomplete_or_conflicting_core')
+            elif f['coverage']!='spans_candidate_interval':reason.append('partial_coverage')
             if any(t['status']!='unit' for t in f['tokens']):reason.append('unresolved_or_partial_unit')
             if any(t['orientation']=='-' for t in f['tokens']):reason.append('reverse_candidate')
             if any(t.get('annotation_ambiguity') for t in f['tokens']):reason.append('annotation_ambiguity')
@@ -130,6 +138,8 @@ def structural_summary(rows,minimum=3,min_fraction=.10):
     for row,f,molecular,bs,cid,sid,reason in observations:
         conflict=molecular in conflicts
         if conflict:reason.append('conflicting_molecule_paths');cid=sid=''
+        if f.get('core_ambiguous'):reason.append('core_boundary_ambiguity')
+        if f.get('threshold_path_dependent'):reason.append('flank_threshold_path_dependent')
         high=strong_boundary(row,f) and not conflict
         evidence='strong' if cid and high else 'supporting' if cid else 'unassigned'
         assignment=dict(row_id=row['id'],read_id=row['read_id'],fragment_id=f['id'],sample=row['sample'],
