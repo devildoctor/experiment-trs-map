@@ -207,7 +207,10 @@ def main():
         reference_sequence=reference.fetch(selected[0].chrom,selected[0].start,selected[0].end).upper()
     if args.graph_mode=='structure':
         if not args.locus_model or not args.structure_policy:p.error('Structure mode needs --locus-model and --structure-policy')
-        if args.merge_rules or args.loss_budget:p.error('Use --max-loss-bp for structure mode')
+        structure_policy=json.loads(args.structure_policy.read_text(encoding='utf-8'))
+        if structure_policy.get('schema_version')==2:
+            if args.merge_rules or args.max_loss_bp or args.loss_budget>.05:p.error('v2 uses --loss-budget in [0, .05]')
+        elif args.merge_rules or args.loss_budget:p.error('Use --max-loss-bp for v1 structure mode')
     elif args.locus_model or args.structure_policy or args.max_loss_bp:
         p.error('Structure options require --graph-mode structure')
     destination=locus_output_dir(args.out,args.locus);destination.mkdir(parents=True,exist_ok=False)
@@ -262,7 +265,7 @@ def main():
         for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         summary=export_structure(destination,locus,records,excluded,metadata,args.locus_model,args.structure_policy,
-            args.max_loss_bp,args.preview_paths,args.dot,rows if args.structures_json else None,
+            args.loss_budget if structure_policy.get('schema_version')==2 else args.max_loss_bp,args.preview_paths,args.dot,rows if args.structures_json else None,
             payload.get('audit') if args.structures_json else None)
     else:
         summary=export_graphs(destination,args.locus,records,excluded,metadata,args.preview_paths,policy,args.loss_budget,args.dot)

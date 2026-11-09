@@ -29,6 +29,17 @@ def write_path_sequences_txt(path,records,metadata):
 def export_structure(destination,locus,records,excluded,metadata,model_path,policy_path,budget,
                      preview_limit,dot,imported_rows=None,imported_audit=None):
     from vntrpathgraph_cli import dump, render_preview
+    policy=json.loads(policy_path.read_text(encoding='utf-8'))
+    if policy.get('schema_version')==2:
+        from vntrdisplay_loss import build_unit_graph
+        from vntrdisplay_export import export_budget
+        model,_,features=annotate_paths(records,model_path,locus,select_representative=True)
+        exact=build_unit_graph(records,features,model)
+        result=export_budget(destination,records,features,model,policy,budget,exact,metadata,dot)
+        result.update(locus=locus.name,status='complete',graph_stats=result['validation'],
+                      substituted_bases=result['substitutions'],preview={'paths':list(exact['paths'])})
+        dump(destination/'summary.json',result)
+        return result
     model,model_hash,features=annotate_paths(records,model_path,locus,imported_rows,imported_audit)
     policy=json.loads(policy_path.read_text(encoding='utf-8'))
     represented,reps,losses,decisions=merge_paths(records,features,model,policy,budget)

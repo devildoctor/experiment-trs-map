@@ -110,12 +110,13 @@ def exact_tandem_units(sequence,min_length=2,max_length=200):
 
 
 # 双向模板进行动态规划；每个 token 保存实际碱基，并记录主方案和一个备选。
-def segment(task,return_details=False,collect_optimal=False):
+def segment(task,return_details=False,collect_optimal=False,select_representative=False):
     """Seed-guided exact-slice DP. Gap/length penalties exceed UNKNOWN cost.
 
     Unknown=1/base; substitutions cost min(3, 0.6*motif length). Both motif
     orientations are tested, not confused with the BAM alignment strand.
     """
+    if select_representative: collect_optimal=True
     sequence,dictionary,platform=task
     n=len(sequence)
     variants=[]
@@ -190,6 +191,25 @@ def segment(task,return_details=False,collect_optimal=False):
                    if forward[edge[0]]*backward[edge[1]]==forward[n]}
         audit['ambiguity_scope']='all_minimum_cost_paths_in_seed_candidate_DAG'
         audit['optimal_paths_at_least_two']=forward[n]>1
+        if select_representative:
+            # Secondary objectives range over the entire primary-optimal DAG.
+            chosen={n:(0,0,(),[])}
+            for i in range(n-1,-1,-1):
+                options=[]
+                for edge in optimal[i]:
+                    start,end,v,status,d=edge
+                    if end not in chosen: continue
+                    exact,unknown,tie,tail=chosen[end]
+                    motif,_,orientation=variants[v] if v>=0 else ({'id':'~'},'', '?')
+                    key=(orientation!='+',motif['id'],start,end,{'unit':0,'partial':1,'unknown':2}[status],d)
+                    options.append((exact-(end-start if status=='unit' and not d else 0),
+                                    unknown+(end-start if status=='unknown' else 0),
+                                    (key,)+tie,[edge]+tail))
+                if options: chosen[i]=min(options,key=lambda x:x[:3])
+            primary=chosen[0][3]
+            audit['selection_policy_version']='partition-v2-exact-unknown-lexical'
+            audit['selected_exact_template_bp']=-chosen[0][0]
+            audit['selected_unknown_bp']=chosen[0][1]
     def convert(steps,other_steps):
         other_set=set(other_steps)
         result=[]

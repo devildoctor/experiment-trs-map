@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "version": "D1S80.display_loss.v2",
+  "model_version": "D1S80.GRCh38.structure.v1",
+  "protected_types": ["U01","U02","U03","U04","U05","U06","U07","U08","U09"],
+  "loss_fractions": [0,0.01,0.03,0.05],
+  "unit_max_edits": 2,
+  "terminal_max_edits": 2,
+  "budget_denominator": "original_core_length",
+  "representative": "fixed_observed_string; reference_immutable",
+  "complexity": "display_sequence_nodes + display_edges",
+  "batch_candidates": "target_groups_and_node_edge_owner_sets",
+  "selection_gain_fraction": 0.9,
+  "selection_policy": "lowest_actual_total_loss_achieving_90_percent_maximum_C_reduction",
+  "scope": "Display convention, not error correction, genotype inference or biological neutrality."
+}
