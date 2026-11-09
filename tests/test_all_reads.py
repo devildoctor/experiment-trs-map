@@ -9,7 +9,14 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from vntrgraph import Locus
-from vntrreads import cigar_interval, extract_record, annotate, write_outputs
+from vntrreads import cigar_interval, extract_record as extract_b2, annotate, write_outputs
+
+
+def extract_record(fields,locus,*unused):
+    from types import SimpleNamespace
+    from vntrflankalign import build_context
+    reference=SimpleNamespace(fetch=lambda c,a,b:'A'*(b-a),contig_length=lambda c:1000)
+    return extract_b2(fields,locus,build_context(locus,reference))
 
 
 class ReadViewTests(unittest.TestCase):
@@ -22,28 +29,25 @@ class ReadViewTests(unittest.TestCase):
         self.assertEqual(ref,(100,110))
         self.assertTrue(overlap)
 
-    def test_single_left_anchor_is_displayed_and_partial(self):
+    def test_short_left_partial_is_display_only(self):
         locus=Locus('X','chr1',100,120,())
         seq='AACCGGTTAA'+'ACGTACGTAC'
-        with patch('vntrreads.near_anchor',side_effect=[(0,10,1),None]):
-            r=extract_record(self.fields(seq,'20M'),locus,'AACCGGTTAA','TTGGAACCGG')
+        r=extract_record(self.fields(seq,'20M'),locus,'AACCGGTTAA','TTGGAACCGG')
         self.assertEqual(r['status'],'displayed')
-        self.assertEqual(r['anchor'],'left_only')
+        self.assertEqual(r['anchor'],'cigar_only')
         self.assertEqual(r['coverage'],'left_partial')
         self.assertEqual(r['sequence'],'ACGTACGTAC')
 
-    def test_single_right_anchor(self):
+    def test_short_right_partial_is_display_only(self):
         locus=Locus('X','chr1',100,120,())
-        with patch('vntrreads.near_anchor',side_effect=[None,(10,20,1)]):
-            r=extract_record(self.fields('ACGTACGTAC'+'TTGGAACCGG','20M',111),locus,'AACCGGTTAA','TTGGAACCGG')
-        self.assertEqual(r['anchor'],'right_only')
+        r=extract_record(self.fields('ACGTACGTAC'+'TTGGAACCGG','20M',111),locus,'AACCGGTTAA','TTGGAACCGG')
+        self.assertEqual(r['anchor'],'cigar_only')
         self.assertEqual(r['coverage'],'right_partial')
         self.assertEqual(r['sequence'],'ACGTACGTAC')
 
     def test_no_anchor_low_mapq_duplicate_qc_fail_retained(self):
         locus=Locus('X','chr1',100,120,())
-        with patch('vntrreads.near_anchor',return_value=None):
-            r=extract_record(self.fields('ACGTACGT','8M',105,1024|512,0),locus,'AAA','TTT')
+        r=extract_record(self.fields('ACGTACGT','8M',105,1024|512,0),locus,'AAA','TTT')
         self.assertEqual(r['status'],'displayed')
         self.assertEqual(r['anchor'],'cigar_only')
         self.assertEqual(r['coverage'],'internal_partial')
@@ -52,15 +56,13 @@ class ReadViewTests(unittest.TestCase):
 
     def test_negative_strand_stored_sequence_not_reversed(self):
         locus=Locus('X','chr1',100,108,())
-        with patch('vntrreads.near_anchor',return_value=None):
-            a=extract_record(self.fields('AAGGCTTA','8M',101,0),locus,'','')
-            b=extract_record(self.fields('AAGGCTTA','8M',101,16),locus,'','')
+        a=extract_record(self.fields('AAGGCTTA','8M',101,0),locus,'','')
+        b=extract_record(self.fields('AAGGCTTA','8M',101,16),locus,'','')
         self.assertEqual(a['sequence'],b['sequence'])
 
     def test_reference_skip_never_called_full(self):
         locus=Locus('X','chr1',100,120,())
-        with patch('vntrreads.near_anchor',return_value=None):
-            r=extract_record(self.fields('AACCGGTTAA','5M10N5M',101),locus,'','')
+        r=extract_record(self.fields('AACCGGTTAA','5M10N5M',101),locus,'','')
         self.assertEqual(r['coverage'],'split_reference_coverage')
 
     def test_soft_clip_not_invented_as_repeat(self):
@@ -83,8 +85,7 @@ class ReadViewTests(unittest.TestCase):
 
     def test_outputs_include_empty_rows_and_each_fragment_with_same_node_ids(self):
         locus=Locus('X','chr1',100,112,())
-        with patch('vntrreads.near_anchor',return_value=None):
-            f=extract_record(self.fields('ACGT'*3,'12M',101),locus,'','')
+        f=extract_record(self.fields('ACGT'*3,'12M',101),locus,'','')
         f.update(id='R1_F1',tokens=annotate((f['sequence'],('ACGT',),'HiFi')))
         rows=[dict(id='R1',read_id='read<1>',sample='S',platform='HiFi',bam='b.bam',record_count=1,records=[],fragments=[f],status='displayed'),
               dict(id='R2',read_id='read2',sample='S',platform='HiFi',bam='b.bam',record_count=1,records=[],fragments=[],status='flank_only')]

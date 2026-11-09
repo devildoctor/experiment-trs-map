@@ -18,34 +18,34 @@ def main():
     with tempfile.TemporaryDirectory() as name:
         root=Path(name)
         rng=random.Random(41)
-        sequence=''.join(rng.choice('ACGT') for _ in range(200))+'ACGT'*10+''.join(rng.choice('ACGT') for _ in range(260))
+        sequence=''.join(rng.choice('ACGT') for _ in range(500))+'ACGT'*10+''.join(rng.choice('ACGT') for _ in range(560))
         reference=root/'reference.fa'
         reference.write_text('>chr1\n'+sequence+'\n',encoding='utf-8')
         run(samtools,'faidx',reference)
         catalog=root/'loci.bed'
-        catalog.write_text('chr1\t200\t240\tID=IL1RN;MOTIFS=ACGT\n',encoding='utf-8')
+        catalog.write_text('chr1\t500\t540\tID=IL1RN;MOTIFS=ACGT\n',encoding='utf-8')
         folder=root/'bamdata'/'S1'/'HiFi'
         folder.mkdir(parents=True)
         sam=root/'input.sam'
-        lines=['@HD\tVN:1.6\tSO:unsorted','@SQ\tSN:chr1\tLN:500']
+        lines=['@HD\tVN:1.6\tSO:unsorted','@SQ\tSN:chr1\tLN:1100']
         def record(read_id,start,end,flag=0,mapq=60):
             bases=sequence[start:end]
             lines.append(f'{read_id}\t{flag}\tchr1\t{start+1}\t{mapq}\t{end-start}M\t*\t0\t0\t{bases}\t'+('I'*len(bases)))
-        record('full_forward',100,340)
-        record('full_reverse',100,340,16)
-        record('single_left',100,220)
-        record('single_right',220,340)
-        record('internal_low_mapq_duplicate',210,230,1024,0)
+        record('full_forward',250,790)
+        record('full_reverse',250,790,16)
+        record('single_left',250,520)
+        record('single_right',520,790)
+        record('internal_low_mapq_duplicate',510,530,1024,0)
         record('flank_only',50,100)
-        record('full_forward',100,340,2048)
-        lines.append('missing_seq\t0\tchr1\t201\t60\t40M\t*\t0\t0\t*\t*')
+        record('full_forward',250,790,2048)
+        lines.append('missing_seq\t0\tchr1\t501\t60\t40M\t*\t0\t0\t*\t*')
         sam.write_text('\n'.join(lines)+'\n',encoding='utf-8')
         bam=folder/'sample.IL1RN.bam'
         run(samtools,'sort','-o',bam,sam)
         run(samtools,'index',bam)
         run(sys.executable,source/'scripts'/'vntrgraph.py','--read-view','--bam-dir',root/'bamdata',
             '--reference',reference,'--catalog',catalog,'--out',root/'out','--locus','IL1RN',
-            '--samtools',samtools,'--workers','2','--anchor-length','100')
+            '--samtools',samtools,'--workers','2')
         out=root/'out'/'IL1RN'
         data=json.loads((out/'IL1RN.reads.json').read_text(encoding='utf-8'))
         rows={r['read_id']:r for r in data['rows']}

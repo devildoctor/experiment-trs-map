@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 
-from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, flank_hit, write_tsv, source_hashes, load_source_namespaces, locus_output_dir
+from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, write_tsv, source_hashes, load_source_namespaces, locus_output_dir
 from vntrcore import canonical_motif, discover_motifs, edit_distance, compact
 
 from vntrmotifs import primitive_unit, definition, base_metrics
@@ -76,23 +76,8 @@ def cigar_interval(pos, cigar, start, end, query_length):
     return (min(a for a, b in spans), max(b for a, b in spans)), (min(a for a,b in reference_spans), max(b for a,b in reference_spans)) if reference_spans else (start, start), sorted(set(flags)), overlap
 
 
-# 这里只做局部显示定位；锚点命中不等于全基因组唯一，也不是分型证据。
-def near_anchor(flank, sequence, expected, identity):
-    """A local anchor helps delimit sequence; it is not a uniqueness gate."""
-    if not flank:
-        return None
-    exact = sequence.find(flank)
-    if exact >= 0 and sequence.find(flank, exact+1) < 0:
-        return exact, exact+len(flank), 1.0
-    # Restrict expensive approximate matching to a CIGAR-guided neighborhood.
-    a = max(0, expected-120)
-    b = min(len(sequence), expected+len(flank)+120)
-    hit = flank_hit(flank, sequence[a:b], expected-a, identity)
-    return (hit[0]+a, hit[1]+a, hit[2]) if hit else None
-
-
-# 逐条比对记录提取实际片段；锚点不可用时回退到 CIGAR，并保留限制状态。
-def extract_record(fields, locus, left, right, flank_context=None):
+# CIGAR-only fragments remain display evidence; only B2 can admit a complete path.
+def extract_record(fields, locus, flank_context):
     name, flag, chrom, pos, mapq, cigar = fields[:6]
     flag, pos, mapq = int(flag), int(pos)-1, int(mapq)
     sequence = fields[9].upper()
@@ -112,39 +97,11 @@ def extract_record(fields, locus, left, right, flank_context=None):
     meta['flags'] += flags
     if not overlap:
         return dict(meta, status='flank_only')
-    if flank_context is not None:
-        meta['coverage'] = ('split_reference_coverage' if 'reference_skip' in flags else
-                            'spans_candidate_interval' if ref[0] <= locus.start and ref[1] >= locus.end else
-                            'left_partial' if ref[0] <= locus.start else
-                            'right_partial' if ref[1] >= locus.end else 'internal_partial')
-        return flank_context.extract(meta, sequence, query, ref, locus.boundary_status)
-    if query is None:
-        return dict(meta, status='no_observed_repeat_bases', reference_interval=ref)
-    q0, q1 = query
-    left_hit = near_anchor(left, sequence, q0-len(left), .72)
-    right_hit = near_anchor(right, sequence, q1, .72)
-    # A match must agree with the locus-projected neighborhood. Reject implausible
-    # coordinates as anchors, not as reasons to discard the record.
-    if left_hit and abs(left_hit[1]-q0) > 120:
-        left_hit = None
-    if right_hit and abs(right_hit[0]-q1) > 120:
-        right_hit = None
-    a = left_hit[1] if left_hit else q0
-    b = right_hit[0] if right_hit else q1
-    if a >= b:
-        a, b = q0, q1
-        left_hit = right_hit = None
-        meta['flags'].append('anchor_order_conflict_cigar_fallback')
-    coverage = ('spans_candidate_interval' if ref[0] <= locus.start and ref[1] >= locus.end
-                else 'left_partial' if ref[0] <= locus.start else 'right_partial' if ref[1] >= locus.end
-                else 'internal_partial')
-    if 'reference_skip' in meta['flags']:
-        coverage = 'split_reference_coverage'
-    anchor = 'both' if left_hit and right_hit else 'left_only' if left_hit else 'right_only' if right_hit else 'cigar_only'
-    return dict(meta, status='displayed', sequence=sequence[a:b], qstart=a, qend=b,
-                reference_interval=ref, anchor=anchor, coverage=coverage,
-                anchor_scores=[left_hit[2] if left_hit else None, right_hit[2] if right_hit else None],
-                boundary_status=locus.boundary_status)
+    meta['coverage'] = ('split_reference_coverage' if 'reference_skip' in flags else
+                        'spans_candidate_interval' if ref[0] <= locus.start and ref[1] >= locus.end else
+                        'left_partial' if ref[0] <= locus.start else
+                        'right_partial' if ref[1] >= locus.end else 'internal_partial')
+    return flank_context.extract(meta, sequence, query, ref, locus.boundary_status)
 
 
 # 缺少 namespace 的旧结果按空字符串兼容；BAM 和平台不是分子身份。
@@ -153,9 +110,9 @@ def row_molecule_key(row):
 
 
 # 读取整个 BAM，按 namespace/QNAME 建行；补充/次级比对独立保留，不拼接。
-def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, records_file, namespace=None, flank_context=None):
-    left = reference.fetch(locus.chrom, max(0,locus.start-anchor_length), locus.start)
-    right = reference.fetch(locus.chrom, locus.end, min(reference.contig_length(locus.chrom),locus.end+anchor_length))
+def read_bam(bam, sample, platform, locus, reference, samtools, records_file, namespace=None, flank_context=None):
+    from vntrflankalign import build_context
+    flank_context = flank_context or build_context(locus, reference)
     grouped, audit, read_groups = {}, Counter(), {}
     with tempfile.TemporaryFile(mode='w+t', encoding='utf-8') as errors:
         process = subprocess.Popen([samtools,'view','-h',str(bam)], stdout=subprocess.PIPE, stderr=errors, text=True)
@@ -189,7 +146,7 @@ def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, r
                                              namespace=ns, molecule_key=compact([sample, ns, f[0]]),
                                              platform=platform, bam=bam.name, fragments=[], records=[], record_count=0)
                 row = grouped[group_key]
-                observation = extract_record(f,locus,left,right,flank_context)
+                observation = extract_record(f,locus,flank_context)
                 observation.update(namespace=ns, molecule_key=row['molecule_key'], read_group=read_group, library=library)
                 observation['record_index'] = record_index
                 record_id = row['id']+f'_rec{row["record_count"]+1}'
@@ -221,11 +178,11 @@ def read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, r
 
 
 # 依次收集各 BAM 的全部行和数量审计；跨 BAM 的重复行在此不删除。
-def collect_reads(bams, locus, reference, samtools, anchor_length, records_file, namespaces=None, flank_context=None):
+def collect_reads(bams, locus, reference, samtools, records_file, namespaces=None, flank_context=None):
     rows, audits = [], []
     namespaces = namespaces or {}
     for sample, platform, bam in bams:
-        incoming, audit = read_bam(bam, sample, platform, locus, reference, samtools, anchor_length, records_file,
+        incoming, audit = read_bam(bam, sample, platform, locus, reference, samtools, records_file,
                                    namespaces.get(str(bam.resolve())), flank_context)
         rows.extend(incoming)
         audits.append(dict(bam=str(bam), sample=sample, platform=platform, **audit))
@@ -500,7 +457,7 @@ def run_locus(locus,args,reference):
     if not bams:
         raise ValueError(f'No BAM files: {locus.name}')
     with (destination/'records.jsonl').open('w',encoding='utf-8') as record_file:
-        rows,bam_audits=collect_reads(bams,locus,reference,args.samtools,args.anchor_length,record_file,args.source_namespaces)
+        rows,bam_audits=collect_reads(bams,locus,reference,args.samtools,record_file,args.source_namespaces)
     records=motif_templates(locus,reference.fetch(locus.chrom,locus.start,locus.end),args.motif_seed_dir)
     write_table(destination/'motifs.tsv',records,['motif','source','level','primitive_sequence','repeat_factor','phase_policy'])
     templates=tuple(r['motif'] for r in records)
@@ -541,7 +498,6 @@ def main():
     parser.add_argument('--out',type=Path,required=True)
     parser.add_argument('--locus',action='append',required=True)
     parser.add_argument('--samtools',default='samtools')
-    parser.add_argument('--anchor-length',type=int,default=100)
     parser.add_argument('--workers',type=int,default=2)
     parser.add_argument('--motif-seed-dir',type=Path)
     parser.add_argument('--sources',type=Path,help='Optional bam/namespace TSV; overrides RG/LB, including an empty namespace')
@@ -551,8 +507,8 @@ def main():
     loci=[l for l in read_catalog(args.catalog) if l.name in args.locus]
     if len(loci)!=len(set(args.locus)):
         parser.error('Unknown locus')
-    if args.workers<1 or args.anchor_length<20:
-        parser.error('workers >= 1 and anchor-length >= 20 required')
+    if args.workers<1:
+        parser.error('workers >= 1 required')
     for locus in loci:
         if locus_output_dir(args.out,locus.name).exists():
             parser.error('Use a new output directory; existing results are preserved')

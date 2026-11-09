@@ -20,6 +20,10 @@ def record(name,seq,molecule=None):
 def row(read='q1',sequence='ACGT',**fragment_changes):
     f=dict(id='f'+read,sequence=sequence,alignment_type='primary',mapq=60,flag=0,
            coverage='spans_candidate_interval',anchor='both',anchor_scores=[1.,1.],flags=[],qstart=100,qend=100+len(sequence))
+    from vntrflankalign import VERSION
+    pair=dict(qstart=100,qend=100+len(sequence))
+    f.update(extraction_version=VERSION,core_status='success',
+             core_anchor_evidence=dict(complete=True,status='success',representative=pair,pairs=[pair]))
     f.update(fragment_changes)
     return dict(id='r'+read,read_id=read,sample='S1',namespace='lib',platform='HiFi',bam='x.bam',fragments=[f])
 
@@ -38,8 +42,8 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(len(paths[0]['molecules']),2)
 
     def test_partial_low_quality_and_mapq255_never_become_paths(self):
-        rows=[row('partial',coverage='left_partial'),row('unavailable',mapq=255),
-              row('weak',anchor_scores=[.89,1]),row('supplementary',alignment_type='supplementary'),
+        rows=[row('partial',core_status='unavailable'),row('unavailable',mapq=255),
+              row('weak',core_anchor_evidence={}),row('supplementary',alignment_type='supplementary'),
               row('duplicate',flag=1024),row('skip',flags=['reference_skip']),row('good')]
         paths,excluded=g.select_paths(rows)
         self.assertEqual(len(paths),1);self.assertEqual(len(paths[0]['molecules']),1)

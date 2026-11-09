@@ -50,9 +50,9 @@ def annotated_row(row_id, namespace=None, sequence='CTG'*4+'TTG'+'CTG'*4, platfo
 class MoleculeIdentityTests(unittest.TestCase):
     def read(self, text, namespace=None):
         output = io.StringIO()
-        with patch('vntrreads.subprocess.Popen',return_value=SamProcess(text)), patch('vntrreads.near_anchor',return_value=None):
+        with patch('vntrreads.subprocess.Popen',return_value=SamProcess(text)):
             rows, audit = read_bam(Path('input.bam'),'S1','HiFi',Locus('X','chr1',100,108,()),
-                                   Reference(),'samtools',100,output,namespace)
+                                   Reference(),'samtools',output,namespace)
         return rows, audit, [json.loads(line) for line in output.getvalue().splitlines()]
 
     def test_same_qname_different_libraries_are_distinct(self):
@@ -95,8 +95,8 @@ class MoleculeIdentityTests(unittest.TestCase):
         bams=[('S1','HiFi',Path('first.bam')),('S1','ONT',Path('second.bam'))]
         mappings={str(bam.resolve()):'shared' for _,_,bam in bams}
         processes=[SamProcess(sam([('g','lib'+str(i))],['g'])) for i in range(2)]
-        with patch('vntrreads.subprocess.Popen',side_effect=processes),patch('vntrreads.near_anchor',return_value=None):
-            rows, _ = collect_reads(bams,Locus('X','chr1',100,108,()),Reference(),'samtools',100,io.StringIO(),mappings)
+        with patch('vntrreads.subprocess.Popen',side_effect=processes):
+            rows, _ = collect_reads(bams,Locus('X','chr1',100,108,()),Reference(),'samtools',io.StringIO(),mappings)
         self.assertEqual(len(rows),2)
         self.assertEqual(len({row_molecule_key(r) for r in rows}),1)
         self.assertEqual(len({r['id'] for r in rows}),2)

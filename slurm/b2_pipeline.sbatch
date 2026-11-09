@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH -J vntr-flank-verify
+#SBATCH -J vntr-b2
 #SBATCH -p CPUqueue_fcp1
 #SBATCH -q stzhu_1_qos
 #SBATCH --account=stzhu
@@ -10,20 +10,18 @@
 #SBATCH --time=03:00:00
 set -euo pipefail
 PROJECT='/home/data/user/stzhu/重复区域分析/vntr-point-graph'
-RUN="$PROJECT/runs-result/20261108_flank_v2"
+RUN="${RUN:?}"
 cd "${SOURCE:?}"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-export PYTHONPATH="$RUN/deps:$PROJECT/.deps/vntr-anchors"
-export NUMBA_CACHE_DIR="$RUN/numba-cache-verify"
-export SAMTOOLS=/home/data/user/stzhu/miniconda3/envs/samtools_env/bin/samtools
+export PYTHONPATH="$PROJECT/runs-result/20261108_flank_v2/deps:$PROJECT/.deps/vntr-anchors"
+export NUMBA_CACHE_DIR="$RUN/numba-cache"
+SAMTOOLS=/home/data/user/stzhu/miniconda3/envs/samtools_env/bin/samtools
 PYTHON=/home/data/user/stzhu/miniconda3/bin/python3
 "$PYTHON" -m unittest discover -s tests -v
 for check in integration_flanks integration_all_reads integration_pathgraph integration_structure integration_review_namespaces integration_synthetic; do
     "$PYTHON" "tests/$check.py" "$SAMTOOLS"
 done
-echo FINAL_CODE_TESTS_PASS
-for LOCUS in ATXN2 D1S80; do
-    "$PYTHON" scripts/run_flank_comparison.py --project "$PROJECT" --run "$RUN/final_replay" --locus "$LOCUS"
-    "$PYTHON" scripts/audit_flank_results.py --project "$PROJECT" --run "$RUN/final_replay" --locus "$LOCUS"
-done
-echo FINAL_REAL_REPLAY_PASS
+echo B2_CODE_TESTS_PASS
+"$PYTHON" scripts/run_b2_pipeline.py --project "$PROJECT" --out "$RUN/results" \
+    --previous-b2 "$PROJECT/runs-result/20261108_flank_v2/final_replay/comparison/B2" --samtools "$SAMTOOLS"
+echo B2_ALL_DONE

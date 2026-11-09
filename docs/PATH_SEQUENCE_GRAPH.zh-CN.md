@@ -12,7 +12,7 @@
 
 ## 观测与计数
 
-沿用输入 BAM 的参考方向，从单条 primary 记录提取目录区间，两侧各取 100 bp 参考锚点。完整覆盖、MAPQ ≥20 且不为255、两侧局部锚点匹配度 HiFi ≥0.90 / ONT与ONTUL ≥0.80 才纳入；排除 unmapped、secondary、supplementary、QC fail、duplicate、参考 N 跳跃和锚点次序冲突。阈值是第一版可审计筛选规则，不是测序错误校正或准确度估计。
+沿用输入 BAM 的参考方向，从单条 primary 记录提取目录核心。现在统一使用 B2：左右各 250 bp 参考模板、每侧至少 175 个匹配碱基，完整仿射定位并保留同分切点。MAPQ ≥20 且不为255；排除 unmapped、secondary、supplementary、QC fail、duplicate、参考 N 跳跃。只有完整 B2 核心证据进入 P；旧锚点分数不能绕过检查。详见 [B2 规则](flank-b2.md)。阈值不是测序错误校正或准确度估计。
 
 分子键沿用 `[sample, namespace, read_name]`，相同分子跨 BAM/平台重复记录只计一次。同分子出现不同合格完整序列时整体排除并记录冲突。`excluded.tsv` 的数量是片段/无片段行数量，不是去重分子数；各排除原因可重叠。HiFi 与其他平台小计也可能重叠。
 

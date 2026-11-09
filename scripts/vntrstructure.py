@@ -554,7 +554,6 @@ def main():
     p.add_argument('--sources',type=Path,help='Optional bam/namespace TSV; overrides RG/LB, including an empty namespace')
     p.add_argument('--locus-model',type=Path,help='Apply a frozen locus model; disables reference/sample dictionary learning')
     p.add_argument('--core-output',action='store_true',help='Show ordered units and actual bases; retain detailed outputs under audit/')
-    p.add_argument('--flank-boundary-model',type=Path,help='Apply a validated frozen flank-v2 extraction model')
     args=p.parse_args()
     try:args.source_namespaces=load_source_namespaces(args.sources)
     except ValueError as exc:p.error(str(exc))
@@ -572,9 +571,8 @@ def main():
     if model:(detail/'locus_model.json').write_bytes(args.locus_model.read_bytes())
     rows=[];audits=[];flank_context=None
     with IndexedFastaReference(args.reference) as reference:
-        if args.flank_boundary_model:
-            from vntrflankalign import load_context
-            flank_context=load_context(args.flank_boundary_model,locus,reference)
+        from vntrflankalign import build_context
+        flank_context=build_context(locus,reference)
         reference_sequence=reference.fetch(locus.chrom,locus.start,locus.end).upper()
         if model is None:dictionary=add_reference_units(dictionary,reference_sequence)
         ref_start=max(0,(locus.search_start if locus.search_start is not None else locus.start)-100)
@@ -584,7 +582,7 @@ def main():
         with (detail/'records.jsonl').open('w',encoding='utf-8') as records:
             bams=discover_bams(args.bam_dir,locus.name)
             if not bams:raise ValueError('No BAM input')
-            rows,audits=collect_reads(bams,locus,reference,args.samtools,100,records,args.source_namespaces,flank_context)
+            rows,audits=collect_reads(bams,locus,reference,args.samtools,records,args.source_namespaces,flank_context)
         print(f'Discovery: {len(rows)} rows; {len(dictionary)} BED/reference motifs',flush=True)
         candidate_audit=[]
         hifi=[r for r in rows if r['platform']=='HiFi']

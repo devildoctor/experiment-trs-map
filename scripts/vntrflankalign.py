@@ -13,12 +13,11 @@ import re
 import numpy as np
 from numba import njit
 
-VERSION = 'flank-v2.1'
+VERSION = 'flank-b2.1'
 SCORING = dict(mismatch=2, gap_open=5, gap_extend=1)
 NORMALIZATION = 'cost,matches,cigar_distance,query_coordinates-v1'
 FIELDS = ['extraction_version', 'boundary_model_sha256', 'extraction_status',
-          'core_status', 'analysis_status', 'core_outer_relation', 'core_ambiguous',
-          'analysis_ambiguous', 'threshold_path_dependent', 'normalization_reason']
+          'core_status', 'core_ambiguous', 'threshold_path_dependent', 'normalization_reason']
 OPS = re.compile(r'(\d+)([MIDNSHP=X])')
 INF = 100000000
 
@@ -329,14 +328,13 @@ def core_eligible(fragment):
     return (fragment.get('extraction_version') == VERSION and fragment.get('core_status') == 'success'
             and evidence.get('complete') and evidence.get('status') == 'success'
             and (fragment.get('qstart'), fragment.get('qend')) == (representative.get('qstart'), representative.get('qend'))
-            and fragment.get('core_outer_relation') != 'conflict'
             and bool(fragment.get('sequence'))
             and fragment['qend']-fragment['qstart'] == len(fragment['sequence']))
 
 
 def validate_model(model, locus, reference):
     required = {'schema_version', 'extraction_version', 'locus', 'chrom', 'core_interval',
-                'fetch_interval', 'reference_sha256', 'anchor_length', 'analysis_interval',
+                'fetch_interval', 'reference_sha256', 'anchor_length',
                 'scoring', 'normalization_policy', 'search_padding', 'max_dp_cells'}
     if not required <= model.keys() or model['schema_version'] != 1 or model['extraction_version'] != VERSION:
         raise ValueError('invalid_flank_boundary_model_schema')
@@ -347,26 +345,20 @@ def validate_model(model, locus, reference):
     if (type(model['search_padding']) is not int or model['search_padding'] < 0
             or type(model['max_dp_cells']) is not int or model['max_dp_cells'] < 1):
         raise ValueError('invalid_flank_search_limits')
-    for key in ('fetch_interval', 'core_interval', 'analysis_interval'):
+    for key in ('fetch_interval', 'core_interval'):
         interval = model[key]
-        if key == 'analysis_interval' and interval is None:
-            continue
         if (not isinstance(interval, list) or len(interval) != 2
                 or any(type(v) is not int for v in interval) or not 0 <= interval[0] < interval[1]):
             raise ValueError('invalid_flank_reference_interval')
     length = model['anchor_length']
-    if length != 250 and not (length == 100 and model.get('purpose') == 'ablation'):
+    if length != 250:
         raise ValueError('unsupported_flank_anchor_length')
     fl, fr = model['fetch_interval']
     dna = reference.fetch(locus.chrom, fl, fr).upper()
     if len(dna) != fr-fl or digest(dna) != model['reference_sha256']:
         raise ValueError('flank_reference_hash_mismatch')
-    for interval in (model['core_interval'], model['analysis_interval']):
-        if interval is not None and not fl <= interval[0]-length < interval[0] < interval[1] < interval[1]+length <= fr:
-            raise ValueError('flank_template_outside_fetch_interval')
-    outer = model['analysis_interval']
-    if outer and not outer[0] <= locus.start < locus.end <= outer[1]:
-        raise ValueError('flank_analysis_interval_does_not_contain_core')
+    if model.get('analysis_interval') is not None:
+        raise ValueError('B2_does_not_support_outer_intervals')
     return dna
 
 
@@ -380,81 +372,52 @@ class FlankContext:
     def fetch(self, start, end):
         return self.dna[start-self.start:end-self.start] if self.start <= start <= end <= self.end else ''
 
-    def locate(self, record, interval, length=None, **kwargs):
-        return locate_interval(record, interval, self.fetch, length or self.model['anchor_length'],
-                               padding=kwargs.pop('padding', self.model['search_padding']),
-                               max_cells=self.model['max_dp_cells'], **kwargs)
+    def locate(self, record, interval):
+        return locate_interval(record, interval, self.fetch, 250,
+                               padding=self.model['search_padding'], max_cells=self.model['max_dp_cells'])
 
     def extract(self, meta, sequence, query, reference_interval, boundary_status):
         raw = dict(meta, query_sequence=sequence)
         core = self.locate(raw, self.model['core_interval'])
-        outer_interval = self.model['analysis_interval']
-        outer = (dict(core) if outer_interval == self.model['core_interval'] else self.locate(raw, outer_interval)) if outer_interval else dict(status='not_frozen', pairs=[], ambiguous=False)
-        relation, status = 'not_checked', 'display_only'
+        status = 'display_only'
         if core['status'] == 'success':
-            a, b = core['representative']['qstart'], core['representative']['qend']
-            query, status = (a, b), 'core_only'
-            if outer['status'] == 'success':
-                oa, ob = outer['representative']['qstart'], outer['representative']['qend']
-                relation = 'consistent' if oa <= a < b <= ob else 'conflict'
-                status = 'both_consistent' if relation == 'consistent' else 'core_outer_conflict'
-                outer['any_compatible_pair'] = any(o['qstart'] <= c['qstart'] < c['qend'] <= o['qend'] for o in outer['pairs'] for c in core['pairs'])
-        elif outer['status'] == 'success':
-            status = 'analysis_only'
+            query = (core['representative']['qstart'], core['representative']['qend'])
+            status = 'core_only'
+        qualified = [any(e[3] >= 175 for e in core[side].get('endpoints', []))
+                     for side in ('left', 'right')]
+        anchor = ('both' if core['status'] == 'success' else
+                  'left_only' if qualified == [True, False] else
+                  'right_only' if qualified == [False, True] else 'cigar_only')
         result = dict(meta, status='displayed' if query and query[0]<query[1] else 'no_observed_repeat_bases',
                       reference_interval=reference_interval, boundary_status=boundary_status,
                       extraction_version=VERSION, boundary_model_sha256=self.model_hash,
-                      extraction_status=status, core_status=core['status'], analysis_status=outer['status'],
-                      core_outer_relation=relation, core_ambiguous=core['ambiguous'],
-                      analysis_ambiguous=outer['ambiguous'], threshold_path_dependent=core.get('threshold_path_dependent',False),
+                      extraction_status=status, core_status=core['status'], core_ambiguous=core['ambiguous'],
+                      threshold_path_dependent=core.get('threshold_path_dependent',False),
                       normalization_reason=core.get('normalization_reason'), core_anchor_evidence=core,
-                      analysis_anchor_evidence=outer, anchor='both' if core['status']=='success' else 'cigar_only',
-                      anchor_scores=[])
+                      anchor=anchor, anchor_scores=[])
         if query and query[0]<query[1]:
             result.update(qstart=query[0], qend=query[1], sequence=sequence[query[0]:query[1]])
-        if outer['status']=='success':
-            oa, ob = outer['representative']['qstart'], outer['representative']['qend']
-            result.update(analysis_query_interval=[oa, ob], analysis_sequence=sequence[oa:ob])
-            if relation == 'consistent':
-                result.update(left_context=sequence[oa:query[0]], right_context=sequence[query[1]:ob])
-                assert result['left_context']+result['sequence']+result['right_context']==result['analysis_sequence']
-        diagnostic = self.locate(raw, self.model['core_interval'], 100)
-        result['diagnostic_100bp'] = diagnostic
-        result['diagnostic_100bp_agrees'] = (diagnostic.get('representative',{}).get('qstart'),diagnostic.get('representative',{}).get('qend')) == (core.get('representative',{}).get('qstart'),core.get('representative',{}).get('qend')) if diagnostic['status']==core['status']=='success' else None
         return result
 
 
-def load_context(path, locus, reference):
-    return FlankContext(json.loads(Path(path).read_text(encoding='utf-8')), locus, reference)
+def build_context(locus, reference):
+    """Freeze the catalog core and its two 250 bp reference templates."""
+    start, end = max(0, locus.start-250), min(reference.contig_length(locus.chrom), locus.end+250)
+    dna = reference.fetch(locus.chrom, start, end).upper()
+    model = dict(schema_version=1, extraction_version=VERSION, strategy='B2',
+                 locus=locus.name, chrom=locus.chrom, core_interval=[locus.start,locus.end],
+                 fetch_interval=[start,end], reference_sha256=digest(dna), anchor_length=250,
+                 scoring=SCORING, normalization_policy=NORMALIZATION, search_padding=120,
+                 max_dp_cells=2000000)
+    return FlankContext(model, locus, reference)
 
 
 def write_flank_outputs(destination, rows, paths=()):
-    from html import escape
-    from vntrreads import write_table
-    membership={(o['row_id'],o['record_id']):p['id'] for p in paths for o in p['observations']}
-    contexts, links, audit = {}, [], []
+    audit = []
     for row in rows:
         for record in row['records']:
             identity=dict(row_id=row['id'],record_id=record['record_id'],molecule=row['molecule_key'],
                           sample=row['sample'],platform=row['platform'],read_id=row['read_id'])
-            audit.append(dict(identity,**{k:v for k,v in record.items() if k not in identity and k!='analysis_sequence'}))
-            sequence=record.get('analysis_sequence')
-            if sequence is not None:
-                key=digest(sequence);contexts[key]=sequence
-                links.append(dict(identity,context_sha256=key,context_length=len(sequence),
-                    core_path=membership.get((row['id'],record['record_id']),''),
-                    analysis_query_interval=record['analysis_query_interval'],
-                    **{k:record.get(k) for k in FIELDS}))
-    (destination/'extraction_audit.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=True)+'\n' for r in audit),encoding='utf-8')
-    (destination/'analysis_context.fa').write_text(''.join(f'>{key}\n{sequence}\n' for key,sequence in sorted(contexts.items())),encoding='ascii')
-    columns=['row_id','record_id','molecule','sample','platform','read_id','context_sha256','context_length',
-             'core_path','analysis_query_interval']+FIELDS
-    write_table(destination/'context_members.tsv',links,columns)
-    table=''.join('<tr>'+''.join('<td>'+escape(str(r[k]))+'</td>' for k in
-         ['sample','platform','read_id','core_path','context_length','extraction_status','core_ambiguous','analysis_ambiguous'])+'</tr>' for r in links)
-    html='''<!doctype html><meta charset="utf-8"><title>外围观测</title>
-<style>body{font-family:Arial,"Microsoft YaHei",sans-serif;margin:28px;color:#263445}td,th{padding:7px;border-bottom:1px solid #ddd}p{line-height:1.7}</style>
-<h1>外围原始观测与核心路径</h1><p>外围与核心分别定位；上下文差异不增加核心 P。规范代表仍可能具有切点歧义。</p>
-<p><a href="analysis_context.fa">外围序列</a> · <a href="context_members.tsv">完整关联表</a> · <a href="extraction_audit.jsonl">全部定位证据</a> · <a href="index.html">核心结构图</a></p>
-<table><tr><th>样本</th><th>平台</th><th>read</th><th>核心P</th><th>外围bp</th><th>状态</th><th>核心歧义</th><th>外围歧义</th></tr>'''+table+'</table>'
-    (destination/'contexts.html').write_text(html,encoding='utf-8')
+            audit.append(dict(identity,**{k:v for k,v in record.items() if k not in identity}))
+    (destination/'extraction_audit.jsonl').write_text(
+        ''.join(json.dumps(r,ensure_ascii=True)+'\n' for r in audit),encoding='utf-8')
