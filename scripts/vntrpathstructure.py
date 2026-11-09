@@ -106,7 +106,8 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
             # A frozen common annotation profile makes the same sequence have the
             # same decomposition regardless of its platform mixture.
             terminal = next((t for t in model.get('terminal_templates', [])
-                             if set(record['samples']).issubset(t['samples']) and
+                             if record.get('role')!='reference' and record['samples'] and
+                             set(record['samples']).issubset(t['samples']) and
                              sequence.endswith(t['sequence'])), None)
             stop = len(sequence)-len(terminal['sequence']) if terminal else len(sequence)
             tokens, audit = segment((sequence[:stop], dictionary, 'HiFi'), return_details=True, collect_optimal=True)
@@ -208,6 +209,7 @@ def merge_paths(records, features, model, policy, budget):
             for source in candidates:
                 p=source['id']
                 if p not in unassigned: continue
+                if source.get('role')=='reference' or target.get('role')=='reference': continue
                 events,reason=compare_for_merge(source['sequence'],target['sequence'],features[p],features[target['id']],policy,budget)
                 decisions.append(dict(path=p,target_path=target['id'],accepted=events is not None,reason=reason))
                 if events is None: continue
@@ -274,10 +276,11 @@ def align_blocks(query, reference):
     return list(reversed(steps)),ways[n][m]>1
 
 
-def build_structural_graph(records, features, model, represented, representatives):
+def build_structural_graph(records, features, model, represented, representatives, backbone_path=None):
     if not records: return dict(nodes={},edges=set(),paths={},coordinates={},labels={},alignments={})
     ordered=sorted(records,key=lambda r:(-len(r['hifi_molecules']),-len(r['molecules']),len(r['sequence']),r['sha256']))
-    reference=blocks(features[representatives[ordered[0]['id']]],model)
+    backbone_path=backbone_path or next((r['id'] for r in records if r.get('role')=='reference'),ordered[0]['id'])
+    reference=blocks(features[representatives[backbone_path]],model)
     descriptions={}; keyed_paths={}; alignment_audit={}
     def add(slot,b):
         key=(slot,b['key'],b['sequence'],b['label'])
@@ -322,6 +325,7 @@ def build_structural_graph(records, features, model, represented, representative
     validate_graph(raw,represented)
     graph=compact_graph(raw); by_node={ids[k]:descriptions[k] for k in keys}
     graph['labels']={}; graph['structure_mode']=True; graph['node_features']={}
+    graph['backbone_path']=backbone_path
     for n,chain in graph['source_nodes'].items():
         bs=[by_node[x] for x in chain]; ts=[t for b in bs for t in b['tokens']]
         label=bs[0]['label'] if len(bs)==1 else describe(ts,model.get('display_labels',{}))

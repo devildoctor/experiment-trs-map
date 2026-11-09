@@ -32,7 +32,10 @@ def main():
         common=['--reference',reference,'--catalog',catalog,'--locus','ATXN2','--samtools',samtools]
         run(sys.executable,source/'scripts/vntrpathgraph_cli.py','--bam-dir',root/'bam','--out',root/'graph',*common)
         graph=root/'graph/ATXN2';summary=json.loads((graph/'summary.json').read_text())
-        assert (summary['molecules'],summary['paths'])==(3,1),summary
+        assert (summary['molecules'],summary['paths'])==(5,2),summary
+        members=json.loads((graph/'source_members.json').read_text())
+        assert members[0]['role']=='reference' and members[0]['molecules']==[]
+        assert {o['read_id'] for p in members for o in p['observations']}=={'full','reverse','core_only','duplicate','low'}
         audit=[json.loads(x) for x in (graph/'records.jsonl').read_text().splitlines()]
         assert len(audit)==7
         assert next(r for r in audit if r['read_id']=='core_only')['extraction_status']=='core_only'

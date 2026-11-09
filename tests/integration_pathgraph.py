@@ -26,12 +26,13 @@ def main():
         run(sys.executable,source/'scripts'/'vntrpathgraph_cli.py','--bam-dir',root/'bam',
             '--reference',ref,'--catalog',bed,'--locus','IL1RN','--out',root/'out','--samtools',samtools)
         out=root/'out'/'IL1RN';report=json.loads((out/'summary.json').read_text())
-        assert report['paths']==2 and report['molecules']==3,report
+        assert report['paths']==3 and report['molecules']==5,report
         assert report['substituted_bases']==0
-        assert report['excluded_reasons']['mapq_not_qualified']==2
+        assert 'mapq_not_qualified' not in report['excluded_reasons']
         assert report['preview']['status']=='rendered'
         assert (out/'IL1RN.preview.png').stat().st_size>1000
-        print('PATHGRAPH_BAM_INTEGRATION_PASS: two exact paths, three distinct molecules, duplicate BAM dedup, partial/MAPQ255 rejection, GFA and static image',flush=True)
+        assert (out/'IL1RN.path_sequences.txt').is_file()
+        print('PATHGRAPH_BAM_INTEGRATION_PASS: reference plus two observed strings, five distinct molecules, duplicate BAM dedup, partial rejection, all B2 passes, GFA/TXT/image',flush=True)
 
 
 if __name__=='__main__':main()

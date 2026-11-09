@@ -14,7 +14,7 @@ import textwrap
 from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, load_source_namespaces, locus_output_dir
 from vntrreads import collect_reads, write_table
 from vntrpathgraph import (VERSION, select_paths, build_graph, compact_graph, apply_merge_rules,
-                           graph_support, write_gfa, validate_gfa, digest)
+                           graph_support, write_gfa, validate_gfa, digest, assign_reference_paths)
 
 
 def dump(path, value):
@@ -37,120 +37,62 @@ def number_ranges(values):
     return ','.join(groups)
 
 
-def display_panels(graph):
-    """Split only the drawing; prefer cuts with few crossing edges near 14 nodes."""
-    ordered=sorted(graph['nodes']); parts=[]; start=0
-    position={n:i for i,n in enumerate(ordered)}
-    while len(ordered)-start>20:
-        candidates=range(start+10,min(start+19,len(ordered)-1))
-        def score(end):
-            crossings=sum((position[a]<end)!=(position[b]<end) for a,b in graph['edges'])
-            return crossings+max(0,8-(len(ordered)-end)),abs(end-start-14),end
-        end=min(candidates,key=score);parts.append(ordered[start:end]);start=end
-    if ordered[start:]:parts.append(ordered[start:])
-    return parts
-
-
 def render_preview(destination, locus, graph, records, all_records, losses, dot):
-    """GFA 拓扑静态图；5–10 条 P 的子图，完整 GFA 不受显示上限影响。"""
-    colors=['#0072B2','#D55E00','#008066','#8A4F91','#665544','#268A9C','#333333','#B24A6A','#777000','#315C9B']
-    names=sorted(graph['paths']); color={p:colors[i%len(colors)] for i,p in enumerate(names)}
-    short={p:i+1 for i,p in enumerate(names)}
-    nstats, estats=graph_support(graph,records)
-    changed=set()
-    for loss in losses:
-        if loss['path'] not in graph['paths']: continue
-        offset=0
-        for n in graph['paths'][loss['path']]:
-            end=offset+len(graph['nodes'][n])
-            if any(offset<=p<end for p in loss['positions']): changed.add(n)
-            offset=end
-    members=[f'{short[r["id"]]}={r["id"]}: n={len(r["molecules"])}, {len(r["sequence"])} bp' for r in records]
-    title=f'{locus} | selected {len(records)}/{len(all_records)} exact-sequence paths | n = distinct molecule keys'
-    title+='\n'+' ; '.join(members[:5])
-    if len(members)>5: title+='\n'+' ; '.join(members[5:])
-    title+='\nObserved interval sequences; alignment correspondence is model-dependent; length is labeled, not to scale.'
-    title+='\nEdge numbers identify paths (1-3 means paths 1,2,3); gray edge = all displayed paths.'
-    if changed: title+='\n* = contains explicitly substituted bases; see losses.tsv.'
+    """Draw every supplied node and edge on one continuous canvas."""
+    names=sorted(graph['paths'])
+    nstats,estats=graph_support(graph,records)
+    reference=next((r['id'] for r in records if r.get('role')=='reference'),None)
+    reference_nodes=set(graph['paths'].get(reference,[]))
+    reference_edges=set(zip(graph['paths'].get(reference,[]),graph['paths'].get(reference,[])[1:]))
+    observed=sum(r.get('role')!='reference' for r in records)
+    molecules=set().union(*(set(r['molecules']) for r in records)) if records else set()
+    title=f'{locus} | {len(records)}/{len(all_records)} paths | {observed} observed strings | {len(molecules)} molecules'
+    if reference: title+='\nP0001 = reference (blue); reference adds zero molecule support.'
+    title+='\nAll supplied paths are drawn. Hover nodes/edges for path names; see sequence TXT.'
     if graph.get('structure_mode'):
-        loss_map={x['path']:x for x in losses}
-        title=f'{locus} | structure-first | {len(records)}/{len(all_records)} original paths'
-        for r in records:
-            p=r['id'];loss=loss_map.get(p,{})
-            length=sum(len(graph['nodes'][n]) for n in graph['paths'][p])
-            title+=f'\n{short[p]}={p}: n={len(r["molecules"])}, {len(r["sequence"])} -> {length} bp'
-            title+=f'; S/I/D={loss.get("substitutions",0)}/{loss.get("insertions",0)}/{loss.get("deletions",0)}'
-        title+='\n~ = observed unit differs from template; * = explicit display loss.'
-        title+='\nUNRESOLVED = partition uncertain; ALIGNMENT ? = correspondence uncertain.'
-        title+='\nEdge numbers identify original paths; only listed P walks are observations.'
+        title+='\n~ = differs from template; UNRESOLVED = partition uncertain; ALIGNMENT ? = correspondence uncertain.'
         legend=graph.get('dictionary_legend',[])
         title+='\n'+'\n'.join(' ; '.join(legend[i:i+3]) for i in range(0,len(legend),3))
-    defaults=['graph [rankdir=LR, bgcolor="white", nodesep=0.25, ranksep=0.38, fontname="DejaVu Sans", fontsize=13];',
-              'node [shape=box, style="rounded,filled", fillcolor="#EEF3F7", color="#526978", fontname="DejaVu Sans", fontsize=10, margin="0.08,0.05"];',
-              'edge [fontname="DejaVu Sans", fontsize=9, arrowsize=0.6];']
-    node_lines={}
-    for n,s in sorted(graph['nodes'].items()):
-        expression=graph.get('labels',{}).get(n,sequence_label(s))
-        label=f'{n} | {len(s)} bp'+(' *' if n in changed else '')+'\n'+'\n'.join(textwrap.wrap(expression,42))
-        extra=', style="rounded,dashed,filled", fillcolor="#FFF4D6"' if graph.get('node_features',{}).get(n,{}).get('uncertain') else ''
-        node_lines[n]=f's{n} [label='+json.dumps(label)+extra+'];'
-    edge_attributes={}
-    for (a,b), v in sorted(estats.items()):
-        ids=v['paths']; shared=len(ids)==len(names)
-        stroke='#687680' if shared else ':'.join(color[p] for p in ids)
-        label='' if shared else number_ranges(sorted(short[p] for p in ids))
-        text_label=('< <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2" BGCOLOR="white">'
-                    '<TR><TD>'+label+'</TD></TR></TABLE> >') if label else '""'
-        edge_attributes[(a,b)]='[color='+json.dumps(stroke)+', penwidth=1.25, label='+text_label+'];'
-    lines=['digraph G {']+defaults+['graph [labelloc=t, label='+json.dumps(title)+'];']
-    lines+=list(node_lines.values())+[f's{a} -> s{b} '+v for (a,b),v in edge_attributes.items()]+['}']
-    path=destination/f'{locus}.preview.dot';path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+    lines=['digraph G {',
+           'graph [rankdir=LR, bgcolor="white", nodesep=0.18, ranksep=0.3, fontname="DejaVu Sans", fontsize=13];',
+           'node [shape=box, style="rounded,filled", fillcolor="#EEF3F7", color="#526978", fontname="DejaVu Sans", fontsize=10];',
+           'edge [fontname="DejaVu Sans", fontsize=8, arrowsize=0.5];',
+           'graph [labelloc=t, label='+json.dumps(title)+'];']
+    for n,bases in sorted(graph['nodes'].items()):
+        expression=graph.get('labels',{}).get(n,sequence_label(bases))
+        label=f'{n} | {len(bases)} bp\n'+'\n'.join(textwrap.wrap(expression,42))
+        uncertain=graph.get('node_features',{}).get(n,{}).get('uncertain')
+        fill='#FFF4D6' if uncertain else '#EEF3F7'
+        stroke='#0072B2' if n in reference_nodes else '#526978'
+        tooltip=f'{len(nstats[n]["paths"])} paths; {nstats[n]["molecules"]} molecules: '+','.join(nstats[n]['paths'])
+        lines.append(f's{n} [label='+json.dumps(label)+', fillcolor='+json.dumps(fill)+
+                     ', color='+json.dumps(stroke)+', penwidth='+('2.5' if n in reference_nodes else '1')+
+                     ', tooltip='+json.dumps(tooltip)+'];')
+    for (a,b),v in sorted(estats.items()):
+        ids=v['paths'];is_reference=(a,b) in reference_edges
+        label=','.join(ids) if len(names)<=10 else f'{len(ids)} P'
+        tooltip=f'{v["molecules"]} molecules: '+','.join(ids)
+        lines.append(f's{a} -> s{b} [color='+json.dumps('#0072B2' if is_reference else '#8A949F')+
+                     ', penwidth='+('2.5' if is_reference else '1')+', label='+json.dumps(label)+
+                     ', tooltip='+json.dumps(tooltip)+'];')
+    lines.append('}')
+    path=destination/f'{locus}.preview.dot'
+    path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
     if not dot or not shutil.which(dot): return dict(status='dot_unavailable',paths=names)
-    def run(args):subprocess.run(args,check=True,timeout=180,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    run([dot,'-Tsvg',str(path),'-o',str(destination/f'{locus}.preview.linear.svg')])
-    parts=display_panels(graph); part_of={n:i for i,part in enumerate(parts,1) for n in part}
-    gvpack=shutil.which('gvpack')
-    source=path; options=[]; layout='linear'
-    if len(parts)>1 and gvpack:
-        folder=destination/'preview_parts';folder.mkdir()
-        layouts=[]; presented_edges=set()
-        for i,part in enumerate(parts,1):
-            label=f'Panel {i}/{len(parts)} | nodes {part[0]}-{part[-1]} | follow arrows; continuation ports name the exact other endpoint'
-            panel=[f'digraph panel_{i} {{']+defaults+[f'subgraph cluster_{i} {{',
-                'color="#CBD5DF"; style="rounded"; margin=16; labelloc=t; label='+json.dumps(label)+';']
-            panel += [node_lines[n] for n in part]
-            for (a,b), attributes in edge_attributes.items():
-                pa,pb=part_of[a],part_of[b]
-                if pa==pb==i:
-                    panel.append(f's{a} -> s{b} '+attributes);presented_edges.add((a,b))
-                elif pa!=pb and i in [pa,pb]:
-                    outgoing=i==pa; port=f'port_{"out" if outgoing else "in"}_{a}_{b}'
-                    label=(f'to {b} (panel {pb})' if outgoing else f'from {a} (panel {pa})')
-                    panel.append(port+' [label='+json.dumps(label)+', shape=box, style="dashed", color="#778899", fontsize=9];')
-                    panel.append((f's{a} -> {port} ' if outgoing else f'{port} -> s{b} ')+attributes)
-                    presented_edges.add((a,b))
-            panel+=['}','}']
-            source_dot=folder/f'panel_{i}.dot';source_dot.write_text('\n'.join(panel)+'\n',encoding='utf-8')
-            positioned=folder/f'panel_{i}.positioned.dot';layouts.append(str(positioned))
-            run([dot,'-Tdot',str(source_dot),'-o',str(positioned)])
-        assert presented_edges==graph['edges']
-        source=destination/f'{locus}.preview.packed.dot'
-        packed_title=title+'\nRead panels top to bottom. Dashed boxes are edge continuations, not additional GFA segments.'
-        # Graphviz gvpack: -array_il1 preserves input order in one left-aligned column.
-        run([gvpack,'-array_il1','-m24','-Glabel='+packed_title,'-Glabelloc=t',
-             '-Gfontname=DejaVu Sans','-Gfontsize=13','-o',str(source)]+layouts)
-        options=['-Kneato','-n2'];layout='panels_with_explicit_edge_continuations'
-    for ext in ['svg','png']:
-        run([dot]+options+['-T'+ext,str(source),'-o',str(destination/f'{locus}.preview.{ext}')])
-    return dict(status='rendered',paths=names,layout=layout,panels=len(parts) if layout!='linear' else 1)
+    subprocess.run([dot,'-Tsvg',str(path),'-o',str(destination/f'{locus}.preview.svg')],
+                   check=True,timeout=600,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    shutil.copyfile(destination/f'{locus}.preview.svg',destination/f'{locus}.preview.linear.svg')
+    subprocess.run([dot,'-Gsize=30,30','-Gdpi=96','-Tpng',str(path),'-o',str(destination/f'{locus}.preview.png')],
+                   check=True,timeout=600,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    return dict(status='rendered',paths=names,layout='single_canvas',panels=1)
 
 
-def export_graphs(destination, locus, records, excluded, metadata, preview_limit=10,
+def export_graphs(destination, locus, records, excluded, metadata, preview_limit=0,
                   merge_policy=None, loss_budget=0, dot='dot'):
     originals={r['id']:r['sequence'] for r in records}
     represented, losses=apply_merge_rules(records,merge_policy,loss_budget,locus)
     # 首条为按 HiFi 分子数、总分子数、长度及哈希确定的实际观测骨架。
-    backbone=records[0]['sequence'] if records else ''
+    backbone=next((r['sequence'] for r in records if r.get('role')=='reference'),records[0]['sequence'] if records else '')
     raw=build_graph(originals,backbone)
     exact=compact_graph(raw)
     structure=compact_graph(build_graph(represented,backbone)) if losses else exact
@@ -160,6 +102,8 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
         mode='structure_lossy' if name=='structure' and losses else name+'_lossless'
         write_gfa(path,graph,records,mode,expected)
         validation[name]=validate_gfa(path,expected)
+    from vntrpathstructure_export import write_path_sequences_txt
+    write_path_sequences_txt(destination/f'{locus}.path_sequences.txt',records,metadata)
     (destination/'paths.original.fa').write_text(''.join(f'>{p}\n{s}\n' for p,s in originals.items()),encoding='ascii')
     (destination/'paths.represented.fa').write_text(''.join(f'>{p}\n{s}\n' for p,s in represented.items()),encoding='ascii')
     loss_by_id={x['path']:x for x in losses}
@@ -190,7 +134,7 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
                 ['id','length','sequence','paths','molecules','visits','alignment_columns'])
     write_table(destination/'edges.tsv',[dict(source=a,target=b,**v) for (a,b),v in sorted(estats.items())],
                 ['source','target','paths','molecules'])
-    selected=records[:preview_limit]
+    selected=records if preview_limit==0 else records[:preview_limit]
     preview_seq={r['id']:represented[r['id']] for r in selected}
     preview_graph=compact_graph(build_graph(preview_seq,backbone))
     write_gfa(destination/f'{locus}.preview.gfa',preview_graph,selected,'preview_selected_paths',preview_seq)
@@ -202,7 +146,7 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
         paths=len(records),structure_routes=len(groups),molecules=len(all_molecules),
         hifi_molecules=len(set().union(*(set(r['hifi_molecules']) for r in records))) if records else 0,
         excluded_fragments=len(excluded),excluded_reasons=dict(Counter(reason for x in excluded for reason in x['reason'].split(','))),
-        backbone=records[0]['id'] if records else None,backbone_sha256=digest(backbone) if records else None,
+        backbone=next((r['id'] for r in records if r.get('role')=='reference'),records[0]['id'] if records else None),backbone_sha256=digest(backbone) if records else None,
         graph_stats=validation,lossy_paths=len(losses),substituted_bases=sum(x['substitutions'] for x in losses),
         maximum_loss_fraction=max((x['fraction'] for x in losses),default=0),loss_budget=loss_budget,
         preview=dict(preview,selected_molecules=len(selected_molecules),total_molecules=len(all_molecules),
@@ -211,8 +155,8 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
         mapping_context='supplied_BAM_only_not_verified_complete',
         alignment_model='observed_backbone_center_star_global_edit_distance; insertion nodes keyed by boundary and inserted length',
         alignment_ambiguity='one optimal alignment selected; equivalent alignments not enumerated',
-        observation_definition='primary, MAPQ qualified, two sufficiently matching local flanks, spans catalog interval; not genotype or genome-wide uniqueness proof',
-        graph_walk_semantics='only P records are observed paths; recombining supported edges does not establish a new observed sequence',
+        observation_definition='all independently B2-complete valid core strings; MAPQ and flags are provenance; reference P0001 adds zero molecule support',
+        graph_walk_semantics='P role distinguishes reference from observation; recombining edges does not establish a new observation',
         metadata=metadata)
     dump(destination/'validation.json',validation);dump(destination/'summary.json',summary)
     dump(destination/'source_members.json',records)
@@ -245,20 +189,22 @@ def main():
     p.add_argument('--locus',required=True);p.add_argument('--out',required=True,type=Path)
     p.add_argument('--samtools',default='samtools');p.add_argument('--sources',type=Path)
     p.add_argument('--platform',action='append',choices=['HiFi','ONT','ONTUL'])
-    p.add_argument('--min-mapq',type=int,default=20);p.add_argument('--preview-paths',type=int,default=10)
+    p.add_argument('--preview-paths',type=int,default=0,help='0 draws all paths; positive values explicitly limit display')
     p.add_argument('--merge-rules',type=Path);p.add_argument('--loss-budget',type=float,default=0)
     p.add_argument('--graph-mode',choices=['sequence','structure'],default='sequence')
     p.add_argument('--locus-model',type=Path);p.add_argument('--structure-policy',type=Path)
     p.add_argument('--max-loss-bp',type=int,default=0,choices=[0,1,2])
     p.add_argument('--dot',default='dot')
+    p.add_argument('--previous-members',type=Path,help='Optional previous source_members.json for old-name mapping')
     args=p.parse_args()
-    if not 0<=args.min_mapq<=254 or not 1<=args.preview_paths<=10 or not 0<=args.loss_budget<=1:p.error('Invalid limits')
+    if args.preview_paths<0 or not 0<=args.loss_budget<=1:p.error('Invalid limits')
     if not args.reference or not args.catalog:p.error('B2 needs --reference and --catalog, including imports')
     from vntrflankalign import build_context
     selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
     if len(selected)!=1:p.error('Unknown B2 locus')
     with IndexedFastaReference(args.reference) as reference:
         flank_context=build_context(selected[0],reference)
+        reference_sequence=reference.fetch(selected[0].chrom,selected[0].start,selected[0].end).upper()
     if args.graph_mode=='structure':
         if not args.locus_model or not args.structure_policy:p.error('Structure mode needs --locus-model and --structure-policy')
         if args.merge_rules or args.loss_budget:p.error('Use --max-loss-bp for structure mode')
@@ -292,7 +238,13 @@ def main():
         metadata=dict(locus=asdict(locus),bam_audits=audits,bam_count=len(bams),
             reference=str(args.reference),catalog_sha256=sha256(args.catalog.read_bytes()).hexdigest(),
             input_files=[dict(path=str(b),bytes=b.stat().st_size,mtime_ns=b.stat().st_mtime_ns) for _,_,b in bams])
-    records,excluded=select_paths(rows,args.min_mapq,set(args.platform) if args.platform else None)
+    records,excluded=select_paths(rows,set(args.platform) if args.platform else None)
+    records=assign_reference_paths(records,reference_sequence,dict(chrom=selected[0].chrom,start=selected[0].start,end=selected[0].end))
+    metadata.update(backbone_path='P0001',reference_core_sha256=digest(reference_sequence),
+                    reference=str(args.reference),admission='all_independently_B2_complete')
+    if args.previous_members:
+        previous=json.loads(args.previous_members.read_text(encoding='utf-8'))
+        metadata['previous_name_by_sha256']={r['sha256']:r['id'] for r in previous if r.get('role')!='reference'}
     if flank_context:
         from vntrflankalign import write_flank_outputs
         metadata.update(extraction_version=flank_context.model['extraction_version'],boundary_model_sha256=flank_context.model_hash)

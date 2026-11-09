@@ -41,18 +41,20 @@ class SelectionTests(unittest.TestCase):
         paths,_=g.select_paths([row(),b])
         self.assertEqual(len(paths[0]['molecules']),2)
 
-    def test_partial_low_quality_and_mapq255_never_become_paths(self):
+    def test_all_b2_passes_are_kept_with_quality_provenance(self):
         rows=[row('partial',core_status='unavailable'),row('unavailable',mapq=255),
               row('weak',core_anchor_evidence={}),row('supplementary',alignment_type='supplementary'),
               row('duplicate',flag=1024),row('skip',flags=['reference_skip']),row('good')]
         paths,excluded=g.select_paths(rows)
-        self.assertEqual(len(paths),1);self.assertEqual(len(paths[0]['molecules']),1)
-        self.assertEqual(len(excluded),6)
+        self.assertEqual(len(paths),1);self.assertEqual(len(paths[0]['molecules']),5)
+        self.assertEqual(len(excluded),2)
+        self.assertIn(255,{o['mapq'] for o in paths[0]['observations']})
+        self.assertIn(1024,{o['flag'] for o in paths[0]['observations']})
 
-    def test_conflicting_complete_molecule_is_excluded(self):
+    def test_conflicting_complete_strings_keep_same_molecule_identity(self):
         paths,excluded=g.select_paths([row(sequence='AAAA'),row(sequence='CCCC')])
-        self.assertEqual(paths,[])
-        self.assertEqual({e['reason'] for e in excluded},{'conflicting_complete_sequences'})
+        self.assertEqual(len(paths),2);self.assertFalse(excluded)
+        self.assertEqual(paths[0]['molecules'],paths[1]['molecules'])
 
 
 class GraphTests(unittest.TestCase):

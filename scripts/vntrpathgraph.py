@@ -1,7 +1,7 @@
 """Context-positioned sequence graphs with exact paths and explicit loss rules.
 
 This is a center-star alignment graph, not PGGB and not a genotype caller.
-Node sharing is conditioned on the chosen observed backbone's alignment columns.
+Node sharing is conditioned on the explicit reference backbone's alignment columns.
 """
 from collections import Counter, defaultdict
 from hashlib import sha256
@@ -15,8 +15,8 @@ def digest(sequence):
     return sha256(sequence.encode('ascii')).hexdigest()
 
 
-def select_paths(rows, min_mapq=20, platforms=None):
-    """完整双侧区间候选才进入 P；同分子冲突与局部记录保留排除原因。"""
+def select_paths(rows, platforms=None):
+    """Keep every independently B2-complete string, with quality as provenance."""
     from vntrreads import row_molecule_key
     candidates, excluded = defaultdict(list), []
     for row in rows:
@@ -26,15 +26,10 @@ def select_paths(rows, min_mapq=20, platforms=None):
         for f in row['fragments']:
             reasons = []
             if platforms and row['platform'] not in platforms: reasons.append('platform_not_selected')
-            if f.get('alignment_type') != 'primary': reasons.append('not_primary')
             mq = f.get('mapq')
-            if mq is None or mq == 255 or not min_mapq <= mq <= 254: reasons.append('mapq_not_qualified')
-            if f.get('flag', 0) & (4 | 256 | 512 | 1024 | 2048): reasons.append('alignment_flag')
             scores = f.get('anchor_scores', [])
             from vntrflankalign import core_eligible
             if not core_eligible(f): reasons.append(f.get('extraction_status','incomplete_B2_core'))
-            bad = {'reference_skip', 'anchor_order_conflict_cigar_fallback'} & set(f.get('flags', []))
-            reasons.extend(sorted(bad))
             sequence = f.get('sequence', '')
             if not re.fullmatch('[ACGTRYSWKMBDHVN]+', sequence): reasons.append('invalid_sequence')
             if reasons:
@@ -44,7 +39,8 @@ def select_paths(rows, min_mapq=20, platforms=None):
                     fragment=f['id'], row_id=row['id'], bam=row.get('bam', ''), molecule=molecule,
                     read_id=row['read_id'], namespace=row.get('namespace', ''),
                     anchor_scores=scores, mapq=mq, qstart=f['qstart'], qend=f['qend'],
-                    record_id=f.get('record_id'), strand=f.get('strand'),
+                    record_id=f.get('record_id'), strand=f.get('strand'), flag=f.get('flag'),
+                    alignment_type=f.get('alignment_type'), flags=f.get('flags', []),
                     reference_interval=f.get('reference_interval'), boundary_status=f.get('boundary_status')))
                 if f.get('extraction_version'):
                     from vntrflankalign import FIELDS
@@ -52,12 +48,8 @@ def select_paths(rows, min_mapq=20, platforms=None):
                     candidates[molecule][-1]['core_candidate_pairs'] = [[p['qstart'],p['qend']] for p in f['core_anchor_evidence']['pairs']]
     grouped = defaultdict(list)
     for molecule, observations in sorted(candidates.items()):
-        sequences = {o['sequence'] for o in observations}
-        if len(sequences) != 1:
-            excluded.extend(dict(molecule=molecule, fragment=o['fragment'], reason='conflicting_complete_sequences')
-                            for o in observations)
-            continue
-        grouped[next(iter(sequences))].extend(observations)
+        for observation in observations:
+            grouped[observation['sequence']].append(observation)
     records = []
     for sequence, observations in grouped.items():
         molecules = sorted({o['molecule'] for o in observations})
@@ -71,6 +63,20 @@ def select_paths(rows, min_mapq=20, platforms=None):
     records.sort(key=lambda r: (-len(r['hifi_molecules']), -len(r['molecules']), len(r['sequence']), r['sha256']))
     for i, r in enumerate(records, 1): r['id'] = f'P{i:04d}'
     return records, excluded
+
+
+def assign_reference_paths(records, reference_sequence, reference_interval):
+    """Reserve P0001 for reference without adding synthetic molecule support."""
+    if not re.fullmatch('[ACGTRYSWKMBDHVN]+', reference_sequence):
+        raise ValueError('Invalid reference core sequence')
+    ordered=sorted(records,key=lambda r:(-len(r['hifi_molecules']),-len(r['molecules']),
+                                         len(r['sequence']),r['sha256']))
+    for i,record in enumerate(ordered,2):
+        record.update(id=f'P{i:04d}',role='observation')
+    reference=dict(id='P0001',role='reference',sequence=reference_sequence,
+                   sha256=digest(reference_sequence),reference_interval=reference_interval,
+                   molecules=[],hifi_molecules=[],samples={},platforms={},observations=[])
+    return [reference]+ordered
 
 
 def alignment_columns(query, backbone, cigar=None):
@@ -220,7 +226,7 @@ def write_gfa(path, graph, records, mode, represented, loss_ledger=None):
     explicit = {r['path']:r for r in loss_ledger or []}
     if loss_ledger is not None: losses = {p:explicit.get(p,{}).get('substitutions',0) for p in represented}
     lines = ['H\tVN:Z:1.0\tgm:Z:'+mode,
-             '# S contains literal bases; L is 0M adjacency; only embedded P walks are observations.',
+             '# S contains literal bases; L is 0M adjacency; P role distinguishes reference and observations.',
              '# mc=distinct molecule keys; pc=distinct raw paths; vc=path visits; lb=explicit substitutions.']
     for n,s in sorted(graph['nodes'].items()):
         v=nstats[n]
@@ -235,7 +241,8 @@ def write_gfa(path, graph, records, mode, represented, loss_ledger=None):
             extra=(f'\tle:i:{loss.get("loss_bp",0)}\tli:i:{loss.get("insertions",0)}'
                    f'\tld:i:{loss.get("deletions",0)}\tol:i:{len(original[p])}\trl:i:{len(represented[p])}')
         lines.append(f'P\t{p}\t'+','.join(f'{n}+' for n in w)+
-                     f'\t*\tmc:i:{len(by_id[p]["molecules"])}\tlb:i:{losses[p]}'+extra)
+                     f'\t*\tmc:i:{len(by_id[p]["molecules"])}\tlb:i:{losses[p]}'+
+                     '\tro:Z:'+by_id[p].get('role','observation')+extra)
     path.write_text('\n'.join(lines)+'\n',encoding='ascii')
 
 
