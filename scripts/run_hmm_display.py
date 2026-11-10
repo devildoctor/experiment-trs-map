@@ -5,7 +5,7 @@ from hashlib import sha256
 from vntrgraph import Locus
 from vntrpathstructure import annotate_paths
 from vntrlocal import classify,assign_slots,plan_edits
-from vntrlocal_export import export_budget
+from vntrlocal_export import export_budget,render_graph
 from vntrdisplay_export import dump,table
 from vntrhmm import VERSION,PARAMETERS
 
@@ -18,14 +18,15 @@ def prepare(records,model_path,locus):
     return model,model_hash,features,tokens,slots,alignments
 
 
-def export_hmm(destination,locus,records,model_path,fraction=.01,render=True):
+def export_hmm(destination,locus,records,model_path,fraction=.01,render=True,dot='dot'):
     destination.mkdir(parents=True,exist_ok=True)
     model,model_hash,features,tokens,slots,alignments=prepare(records,model_path,locus)
     dump(destination/'source_members.json',records);dump(destination/'locus_model.json',model)
     dump(destination/'selected_annotations.json',dict(tokens=tokens,slots=slots))
     dump(destination/'original_annotations.json',features);dump(destination/'alignment_choices.json',alignments)
     ts,views,represented,losses,_,decisions=plan_edits(records,tokens,slots,model,fraction)
-    report=export_budget(destination,records,tokens,ts,slots,views,represented,losses,fraction,decisions,render,model)
+    report=export_budget(destination,records,tokens,ts,slots,views,represented,losses,fraction,decisions,False,model)
+    if render:render_graph(destination,json.loads((destination/'display_graph.json').read_text()),dot)
     report.update(annotation_version=VERSION,decoder='single_viterbi',E_selection=False,model_sha256=model_hash)
     dump(destination/'summary.json',report)
     return report
