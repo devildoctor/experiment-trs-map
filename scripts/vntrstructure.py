@@ -110,7 +110,7 @@ def exact_tandem_units(sequence,min_length=2,max_length=200):
 
 
 # 双向模板进行动态规划；每个 token 保存实际碱基，并记录主方案和一个备选。
-def segment(task,return_details=False,collect_optimal=False,select_representative=False):
+def segment(task,return_details=False,collect_optimal=False,select_representative=False,export_optimal=False):
     """Seed-guided exact-slice DP. Gap/length penalties exceed UNKNOWN cost.
 
     Unknown=1/base; substitutions cost min(3, 0.6*motif length). Both motif
@@ -210,7 +210,7 @@ def segment(task,return_details=False,collect_optimal=False,select_representativ
             audit['selection_policy_version']='partition-v2-exact-unknown-lexical'
             audit['selected_exact_template_bp']=-chosen[0][0]
             audit['selected_unknown_bp']=chosen[0][1]
-    def convert(steps,other_steps):
+    def convert(steps,other_steps,check_complete=True):
         other_set=set(other_steps)
         result=[]
         for start,end,v,status,d in steps:
@@ -228,7 +228,7 @@ def segment(task,return_details=False,collect_optimal=False,select_representativ
                 result[-1]['end']=end;result[-1]['exact_bases']+=t['exact_bases']
                 result[-1]['annotation_ambiguity']|=t['annotation_ambiguity']
             else:result.append(t)
-        assert ''.join(t['exact_bases'] for t in result)==sequence
+        if check_complete:assert ''.join(t['exact_bases'] for t in result)==sequence
         return result
     result=convert(primary,alternate)
     if collect_optimal:
@@ -238,6 +238,11 @@ def segment(task,return_details=False,collect_optimal=False,select_representativ
             if intervals and intervals[-1][1]==t['start']:intervals[-1][1]=t['end']
             else:intervals.append([t['start'],t['end']])
         audit['ambiguity_intervals']=intervals
+        if export_optimal:
+            audit['optimal_dag']=dict(length=n,primary_cost=cost[n],path_count=forward[n],
+                mandatory_vertices=[i for i in range(n+1) if forward[i]*backward[i]==forward[n]],
+                edges=[dict(convert([edge],[],False)[0],cost=offered[edge])
+                       for i in sorted(optimal) for edge in sorted(optimal[i])])
     audit['metrics']=base_metrics(result)
     audit['alternative']=convert(alternate,primary) if alternate else []
     audit['alternative_metrics']=base_metrics(audit['alternative']) if alternate else None

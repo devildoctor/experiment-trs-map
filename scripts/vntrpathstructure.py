@@ -79,7 +79,7 @@ def summarize(sequence, tokens, audit, model):
                 repeated_edited_subtype=any(n>1 for n in edited.values()))
 
 
-def annotate_paths(records, model_path, locus, imported_rows=None, imported_audit=None,select_representative=False):
+def annotate_paths(records, model_path, locus, imported_rows=None, imported_audit=None,select_representative=False,export_optimal=False):
     model, dictionary = load_model(model_path, locus)
     model_hash = sha256(model_path.read_bytes()).hexdigest()
     imported = defaultdict(list)
@@ -111,7 +111,7 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
                              sequence.endswith(t['sequence'])), None)
             stop = len(sequence)-len(terminal['sequence']) if terminal else len(sequence)
             tokens, audit = segment((sequence[:stop], dictionary, 'HiFi'), return_details=True, collect_optimal=True,
-                                    select_representative=select_representative)
+                                    select_representative=select_representative,export_optimal=export_optimal)
             if terminal:
                 token = dict(start=stop, end=len(sequence), exact_bases=sequence[stop:],
                              template=terminal['sequence'], motif=terminal['id'], base=terminal['id'],
