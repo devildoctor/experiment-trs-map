@@ -48,7 +48,7 @@ def annotate_unknown_hints(display,model):
     return hints
 
 
-def materialize(records,views,graph,losses):
+def materialize(records,views,graph,losses,original_tokens):
     chains,mapping,paths,metrics=topology(views);bykey=defaultdict(list);by_id={r['id']:r for r in records}
     variants={};variant_members=defaultdict(set);transition_members=defaultdict(set)
     for p,vs in views.items():
@@ -69,6 +69,7 @@ def materialize(records,views,graph,losses):
             lengths=sorted({sum(map(len,w['variant_vector'])) for p,w in members}),
             ambiguity_kinds=sorted({t['ambiguity_kind'] for t in ts}),
             candidate_types=sorted({x for t in ts for x in t['candidate_types']}),
+            parameterized_weak=v.get('parameterized_weak',False),
             approximate=any(t['match_kind']=='approximate' for t in ts),
             weak_approximate=any(t['weak_approximate'] for t in ts))
     ids={i:'D%04d'%(i+1) for i in range(len(chains))};nodes={}
@@ -79,18 +80,22 @@ def materialize(records,views,graph,losses):
         if any(p['weak_approximate'] for p in parts):flags.append('weak_approximate')
         nodes[ids[i]]=dict(id=ids[i],kind='module' if len(chain)>1 else parts[0]['category'][0],
             parts=parts,uncertainty_flags=flags)
-    path_visits={};occurrences=[]
+    path_visits={};occurrences=[];local_losses=defaultdict(set)
     for p,vs in views.items():
         out=[];position=0
         for v in vs:
             n=ids[mapping[v['key']]];ns=[graph['paths'][p][i] for i in v['occurrence_indices']]
             length=sum(map(len,v['variant_vector']))
+            if any(original_tokens[p][i]['exact_bases']!=s for i,s in zip(v['occurrence_indices'],v['variant_vector'])):
+                local_losses[n].add(p)
             part=dict(count=v['count'],variant_ids=[seq_id(s) for s in v['variant_vector']],
                 types=[t['motif'] for t in v['tokens']],occurrence_indices=v['occurrence_indices'],
                 original_interval=v['original_interval'],represented_interval=[position,position+length],
                 gfa_nodes=ns,annotation=[dict(motif=t['motif'],status=t['status'],
                     match_kind=t['match_kind'],ambiguity_kind=t['ambiguity_kind'],candidate_types=t['candidate_types'],
-                    ambiguity_regions=t['ambiguity_regions'],edit_distance=t.get('edit_distance',0)) for t in v['tokens']])
+                    ambiguity_regions=t['ambiguity_regions'],edit_distance=t.get('edit_distance',0),
+                    weak_approximate=t['weak_approximate']) for t in v['tokens']])
+            if v.get('skip_context') is not None:part['skip_context']=v['skip_context']
             if out and out[-1]['node']==n:
                 out[-1]['parts'].append(part);out[-1]['gfa_nodes']+=ns
             else:out.append(dict(node=n,parts=[part],gfa_nodes=list(ns)))
@@ -98,7 +103,8 @@ def materialize(records,views,graph,losses):
                 occurrences.append(dict(path=p,index=i,node=n,slot=list(v['slots'][i-v['occurrence_indices'][0]]),
                     original_start=t['start'],original_end=t['end'],represented_variant=seq_id(t['exact_bases']),
                     motif=t['motif'],status=t['status'],match_kind=t['match_kind'],ambiguity_kind=t['ambiguity_kind'],
-                    candidate_types=t['candidate_types'],ambiguity_regions=t['ambiguity_regions']))
+                    candidate_types=t['candidate_types'],ambiguity_regions=t['ambiguity_regions'],
+                    weak_approximate=t['weak_approximate']))
             position+=length
         path_visits[p]=out
     edges={(a['node'],b['node']) for vs in path_visits.values() for a,b in zip(vs,vs[1:])}
@@ -107,6 +113,11 @@ def materialize(records,views,graph,losses):
         sequence_variants=variants,backbone_path='P0001',
         scope='All registered P paths with their own ordered visit parameters; topology alone does not enumerate observations.')
     groups={p:p for p in views};add_support(display,graph,records,losses,groups)
+    # Compare the actual strings of each occurrence, including boundary deletions.
+    # A loss elsewhere on the same P must not color this node.
+    for n,node in display['nodes'].items():node['lossy_member_ids']=sorted(local_losses[n])
+    display['loss_marker_scope']='node_local_string_change'
+    display['weak_skip_parameterized']=any(v.get('parameterized_weak',False) for vs in views.values() for v in vs)
     variant_rows=[dict(node=ids[mapping[k]],family_position=repr(k),variant_vector=list(v),
         route_molecules=len(ms),molecule_ids=sorted(ms)) for (k,v),ms in variant_members.items()]
     transition_rows=[dict(source=ids[mapping[a[0]]],target=ids[mapping[b[0]]],source_variants=list(a[1]),
@@ -135,7 +146,7 @@ def atom_label(part):
     elif cat=='partial':label='PART '+','.join(part['types'])+' '+values(part['lengths'])+'bp'
     else:label='|'.join(part['types'])+' x'+values(counts)
     if cat in ('type_ambiguous','partition_ambiguous') or part['ambiguity_kinds']!=['none']:label+=' ?'
-    if part['weak_approximate']:label+=' weak'
+    if part['weak_approximate'] and not part.get('parameterized_weak',False):label+=' weak'
     elif part['approximate']:label+=' ~'
     if len(part['variant_ids'])>1:label+=' v'+str(len(part['variant_ids']))
     return label
@@ -147,7 +158,7 @@ def render_graph(out,display,dot='dot'):
         'edge [color="#a5b4c7",arrowsize=0.35,penwidth=0.6,fontsize=7];']
     legend=('D1S80 | All 307 P paths (1 REF + 306 OBS) | Per-P loss cap '+str(round(display.get('loss_budget_fraction',0)*100))+'%'
         '\nNODE: unit/run or linear module; x{...}=observed count set; v=exact sequence variants; X?=unresolved fragment (actual bp retained)'
-        '\n?=annotation ambiguity; ~=approximate match; weak=distance >2; orange LOSS*=recorded representation edits; blue border=REF path'
+        '\n?=annotation ambiguity; ~=approximate match (per-visit weak/distance in parameters); orange LOSS*=edits inside this node; blue border=REF path'
         '\nEDGE: registered adjacency; P=path count; M=distinct molecule provenance keys. Only registered paths plus their visit parameters are observations.')
     lines.append('graph [labelloc="t",labeljust="l",fontname="DejaVu Sans",fontsize=14,label='+json.dumps(legend)+'];')
     ref={v['node'] for v in display['paths']['P0001']}
@@ -169,7 +180,7 @@ def render_graph(out,display,dot='dot'):
 def export_budget(out,records,original_tokens,rep_tokens,slots,views,represented,losses,fraction,decisions,render=True,model=None):
     out.mkdir(parents=True,exist_ok=True);originals={r['id']:r['sequence'] for r in records}
     exact=literal_graph(records,original_tokens,slots);graph=literal_graph(records,rep_tokens,slots)
-    display,occurrences,variants,transitions=materialize(records,views,graph,losses)
+    display,occurrences,variants,transitions=materialize(records,views,graph,losses,original_tokens)
     display['loss_budget_fraction']=fraction
     if model:annotate_unknown_hints(display,model)
     validation=validate_parameters(display,graph,represented)

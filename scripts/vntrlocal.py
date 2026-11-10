@@ -132,18 +132,21 @@ def category(t):
     return 'unit',t['motif'],orient,role
 
 
-def path_view(tokens,slots,reference,context_tokens=None):
+def path_view(tokens,slots,reference,context_tokens=None,parameterize=False):
     """A/B/D families, with per-occurrence strings and selected annotation retained."""
     context_tokens=context_tokens or tokens
+    def view_category(t):
+        cat=category(t)
+        return ('unit',)+cat[1:] if parameterize and cat[0]=='weak_unit' else cat
     ref_run={};run=0
     for i,t in enumerate(reference):
         if not i or (t['motif'],t['status'],t.get('orientation'))!=(reference[i-1]['motif'],reference[i-1]['status'],reference[i-1].get('orientation')):run+=1
         ref_run[i]=run
     visits=[];i=0;seen=Counter()
     while i<len(tokens):
-        t=tokens[i];cat=category(t);j=i+1
+        t=tokens[i];cat=view_category(t);j=i+1;skip_context=None
         if t['status']=='unit':
-            while j<len(tokens) and category(tokens[j])==cat and tokens[j]['status']=='unit':j+=1
+            while j<len(tokens) and view_category(tokens[j])==cat and tokens[j]['status']=='unit':j+=1
         coords=slots[i:j]
         matching=tuple(sorted({ref_run[c[0]] for c in coords if c[1]==1 and c[0]<len(reference)
                               and reference[c[0]]['motif']==t['motif']}))
@@ -153,14 +156,16 @@ def path_view(tokens,slots,reference,context_tokens=None):
             right=(slots[j],context_tokens[j]['status'],context_tokens[j]['motif']) if j<len(tokens) else ('END',)
             # At least one full unit long: retain the literal block as a distinct structure.
             extent=('short_unresolved',) if len(t['exact_bases'])<min(len(x['template']) for x in reference if x.get('template')) else ('long_block',t['exact_bases'])
-            key=(pos,cat,left,right,extent)
+            skip_context=dict(left=left,right=right)
+            key=(pos,cat,extent) if parameterize and extent==('short_unresolved',) else (pos,cat,left,right,extent)
         elif t['status']=='partial':key=(pos,cat,t['motif'],len(t['exact_bases']))
         else:key=(pos,cat)
         # Distinct visits separated by an interruption may not turn into a cycle.
         occurrence=seen[key];seen[key]+=1;key=(key,occurrence)
         visits.append(dict(key=key,count=j-i,variant_vector=[x['exact_bases'] for x in tokens[i:j]],
             tokens=tokens[i:j],occurrence_indices=list(range(i,j)),slots=slots[i:j],
-            original_interval=[t['start'],tokens[j-1]['end']],position=pos,category=cat))
+            original_interval=[t['start'],tokens[j-1]['end']],position=pos,category=cat,
+            parameterized_weak=parameterize,skip_context=skip_context))
         i=j
     return visits
 

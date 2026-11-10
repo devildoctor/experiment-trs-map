@@ -45,7 +45,7 @@ class LocalTests(unittest.TestCase):
         rs=[record(p,v) for p,v in ts.items()]
         rt,views,represented,losses,_,_=plan_edits(rs,ts,ss,{},.10)
         self.assertEqual(losses,[])
-        g=literal_graph(rs,rt,ss);d,*_=materialize(rs,views,g,losses)
+        g=literal_graph(rs,rt,ss);d,*_=materialize(rs,views,g,losses,ts)
         validate_parameters(d,g,represented)
         self.assertEqual(represented['P0002'],rs[1]['sequence'])
         hints=annotate_unknown_hints(d,dict(motifs=[dict(id='A',sequence=A),dict(id='B',sequence=B)]))
