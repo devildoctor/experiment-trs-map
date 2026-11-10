@@ -72,6 +72,7 @@ def materialize(records,views,graph,losses,original_tokens):
             parameterized_weak=v.get('parameterized_weak',False),
             approximate=any(t['match_kind']=='approximate' for t in ts),
             weak_approximate=any(t['weak_approximate'] for t in ts))
+        if v.get('display_family'):atoms[key]['display_family']=v['display_family']
     ids={i:'D%04d'%(i+1) for i in range(len(chains))};nodes={}
     for i,chain in enumerate(chains):
         parts=[atoms[k] for k in chain];flags=[]
@@ -96,6 +97,7 @@ def materialize(records,views,graph,losses,original_tokens):
                     ambiguity_regions=t['ambiguity_regions'],edit_distance=t.get('edit_distance',0),
                     weak_approximate=t['weak_approximate']) for t in v['tokens']])
             if v.get('skip_context') is not None:part['skip_context']=v['skip_context']
+            if v.get('display_family'):part['display_family']=v['display_family']
             if out and out[-1]['node']==n:
                 out[-1]['parts'].append(part);out[-1]['gfa_nodes']+=ns
             else:out.append(dict(node=n,parts=[part],gfa_nodes=list(ns)))
@@ -144,6 +146,8 @@ def atom_label(part):
     values=lambda ns: str(ns[0]) if len(ns)==1 else '{'+','.join(map(str,ns))+'}'
     if cat=='unknown':label='X? '+values(part['lengths'])+'bp'
     elif cat=='partial':label='PART '+','.join(part['types'])+' '+values(part['lengths'])+'bp'
+    elif part.get('display_family'):
+        label=part['display_family']['id']+' {'+','.join(part['types'])+'} x'+values(counts)
     else:label='|'.join(part['types'])+' x'+values(counts)
     if cat in ('type_ambiguous','partition_ambiguous') or part['ambiguity_kinds']!=['none']:label+=' ?'
     if part['weak_approximate'] and not part.get('parameterized_weak',False):label+=' weak'
@@ -153,12 +157,14 @@ def atom_label(part):
 
 
 def render_graph(out,display,dot='dot'):
-    lines=['digraph D1S80 {','graph [rankdir=LR,bgcolor="white",nodesep=0.10,ranksep=0.45,splines=polyline,outputorder=edgesfirst,nslimit=2,nslimit1=2,mclimit=0.2,searchsize=5];',
+    locus=display.get('locus','D1S80')
+    lines=['digraph '+locus+' {','graph [rankdir=LR,bgcolor="white",nodesep=0.10,ranksep=0.45,splines=polyline,outputorder=edgesfirst,nslimit=2,nslimit1=2,mclimit=0.2,searchsize=5];',
         'node [shape=box,style="rounded,filled",fontname="DejaVu Sans",fontsize=10];',
         'edge [color="#a5b4c7",arrowsize=0.35,penwidth=0.6,fontsize=7];']
-    legend=('D1S80 | All 307 P paths (1 REF + 306 OBS) | Per-P loss cap '+str(round(display.get('loss_budget_fraction',0)*100))+'%'
+    legend=(locus+' | All '+str(len(display['paths']))+' P paths | Per-P loss cap '+str(round(display.get('loss_budget_fraction',0)*100))+'%'
         '\nNODE: unit/run or linear module; x{...}=observed count set; v=exact sequence variants; X?=unresolved fragment (actual bp retained)'
         '\n?=annotation ambiguity; ~=approximate match (per-visit weak/distance in parameters); orange LOSS*=edits inside this node; blue border=REF path'
+        '\nF=display family; each visit retains its selected type and exact sequence.'
         '\nEDGE: registered adjacency; P=path count; M=distinct molecule provenance keys. Only registered paths plus their visit parameters are observations.')
     lines.append('graph [labelloc="t",labeljust="l",fontname="DejaVu Sans",fontsize=14,label='+json.dumps(legend)+'];')
     ref={v['node'] for v in display['paths']['P0001']}
@@ -173,19 +179,21 @@ def render_graph(out,display,dot='dot'):
         lines.append('%s [label=%s,fillcolor="%s",color="%s",penwidth=%s,tooltip=%s];'%(n,json.dumps(label),fill,color,2 if n in ref else 1,json.dumps(json.dumps(tooltip))))
     for e in display['edges']:
         lines.append('%s -> %s [label="P%d M%d",tooltip=%s];'%(e['source'],e['target'],len(e['path_ids']),e['route_molecules'],json.dumps(','.join(e['path_ids']))))
-    lines.append('}');f=out/'D1S80.display.dot';f.write_text('\n'.join(lines)+'\n',encoding='ascii')
-    subprocess.run([dot,'-Tsvg',str(f),'-o',str(out/'D1S80.display.svg')],check=True,timeout=300)
+    lines.append('}');f=out/(locus+'.display.dot');f.write_text('\n'.join(lines)+'\n',encoding='ascii')
+    subprocess.run([dot,'-Tsvg',str(f),'-o',str(out/(locus+'.display.svg'))],check=True,timeout=300)
 
 
 def export_budget(out,records,original_tokens,rep_tokens,slots,views,represented,losses,fraction,decisions,render=True,model=None):
+    locus=(model or {}).get('locus','D1S80')
     out.mkdir(parents=True,exist_ok=True);originals={r['id']:r['sequence'] for r in records}
     exact=literal_graph(records,original_tokens,slots);graph=literal_graph(records,rep_tokens,slots)
     display,occurrences,variants,transitions=materialize(records,views,graph,losses,original_tokens)
     display['loss_budget_fraction']=fraction
+    display['locus']=locus
     if model:annotate_unknown_hints(display,model)
     validation=validate_parameters(display,graph,represented)
     for name,g,seqs,loss in [('original',exact,originals,[]),('represented',graph,represented,losses)]:
-        f=out/('D1S80.'+name+'.gfa');write_gfa(f,g,records,VERSION+'_'+name,seqs,loss)
+        f=out/(locus+'.'+name+'.gfa');write_gfa(f,g,records,VERSION+'_'+name,seqs,loss)
         validation[name+'_gfa']=validate_gfa(f,seqs)
         (out/('paths.'+name+'.fa')).write_text(''.join('>'+p+'\n'+s+'\n' for p,s in sorted(seqs.items())),encoding='ascii')
     loss_by_id={v['path']:v for v in losses};observed={r['sequence'] for r in records if r.get('role')!='reference'};rows=[]
@@ -197,8 +205,8 @@ def export_budget(out,records,original_tokens,rep_tokens,slots,views,represented
             insertions=loss.get('insertions',0),deletions=loss.get('deletions',0),
             represented_is_observed_whole_sequence=represented[p] in observed,
             original_sequence=originals[p],represented_sequence=represented[p]))
-    table(out/'D1S80.path_sequences.txt',rows);table(out/'paths.tsv',rows)
-    with (out/'D1S80.path_sequences.txt').open(encoding='utf-8') as h:readback=list(csv.DictReader(h,delimiter='\t'))
+    table(out/(locus+'.path_sequences.txt'),rows);table(out/'paths.tsv',rows)
+    with (out/(locus+'.path_sequences.txt')).open(encoding='utf-8') as h:readback=list(csv.DictReader(h,delimiter='\t'))
     assert {r['path']:r['original_sequence'] for r in readback}==originals
     assert {r['path']:r['represented_sequence'] for r in readback}==represented
     validation.update(txt_roundtrip=True,all_P_preserved=len(rows)==len(records),original_reconstruction=True,

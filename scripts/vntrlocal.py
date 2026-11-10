@@ -276,7 +276,7 @@ def eligible(t,model):
             and t.get('role','internal')=='internal' and t['motif'] not in model.get('interruptions',[]))
 
 
-def plan_edits(records,tokens,slots,model,fraction,initial=None):
+def plan_edits(records,tokens,slots,model,fraction,initial=None,view_builder=None):
     """Direct occurrence-to-observed-string substitution; D/ambiguity never edited."""
     if not 0<=fraction<=.10:raise ValueError('v3 fraction outside [0,0.10]')
     by_id={r['id']:r for r in records};reference=tokens['P0001'];originals={p:r['sequence'] for p,r in by_id.items()}
@@ -317,8 +317,10 @@ def plan_edits(records,tokens,slots,model,fraction,initial=None):
                     exact_bases=target['exact_bases'],edit_distance=target.get('edit_distance',0),
                     candidate_types=[target['motif']],match_kind=target['match_kind'])
         return ts
+    def view(p,ts):
+        return view_builder(p,ts) if view_builder else path_view(ts,slots[p],reference,tokens[p])
     current_tokens={p:represented_tokens(p,selected) for p in tokens}
-    views={p:path_view(ts,slots[p],reference,tokens[p]) for p,ts in current_tokens.items()}
+    views={p:view(p,ts) for p,ts in current_tokens.items()}
     index=ComplexityIndex(views)
     current=topology(views)[3]['C'];accepted=[]
     print('LOCAL_CANDIDATES',fraction,len(candidates),flush=True)
@@ -335,7 +337,7 @@ def plan_edits(records,tokens,slots,model,fraction,initial=None):
             for batch in batches:
                 trial=dict(selected);trial.update({(p,i):candidate['target'] for p,i,d in batch})
                 ps={p for p,i,d in batch};newtokens={p:represented_tokens(p,trial) for p in ps}
-                vv={p:path_view(ts,slots[p],reference,tokens[p]) for p,ts in newtokens.items()}
+                vv={p:view(p,ts) for p,ts in newtokens.items()}
                 metrics=index.measure(vv);gain=current-metrics['C']
                 if gain<=0:continue
                 edits=sum(d for p,i,d in batch)
