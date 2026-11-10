@@ -8,6 +8,7 @@ from vntrpathgraph import validate_graph,write_gfa,validate_gfa
 from vntrdisplay import add_support
 from vntrdisplay_export import dump,table
 from vntrlocal import topology,category,VERSION
+from vntrcore import edit_distance
 
 
 def literal_graph(records,tokens,slots):
@@ -26,6 +27,25 @@ def literal_graph(records,tokens,slots):
 
 
 def seq_id(s):return 'V'+sha256(s.encode()).hexdigest()[:16]
+
+
+def annotate_unknown_hints(display,model):
+    """Keep nearest-template hints distinct from primary-optimal annotation choices."""
+    hints={}
+    for visits in display['paths'].values():
+        for visit in visits:
+            for part in visit['parts']:
+                for variant,a in zip(part['variant_ids'],part['annotation']):
+                    if a['status']!='unknown':continue
+                    if variant not in hints:
+                        sequence=display['sequence_variants'][variant]
+                        distances={m['id']:edit_distance(sequence,m['sequence']) for m in model['motifs']}
+                        best=min(distances.values())
+                        hints[variant]=dict(minimum_edit_distance=best,nearest_types=sorted(k for k,v in distances.items() if v==best),
+                            distances=distances,scope='fixed original fragment versus frozen forward templates; hint, not a selected annotation')
+                    a['unknown_template_hint']=hints[variant]
+    display['unknown_template_hints']=hints
+    return hints
 
 
 def materialize(records,views,graph,losses):
@@ -125,6 +145,11 @@ def render_graph(out,display,dot='dot'):
     lines=['digraph D1S80 {','graph [rankdir=LR,bgcolor="white",nodesep=0.10,ranksep=0.45,splines=polyline,outputorder=edgesfirst,nslimit=2,nslimit1=2,mclimit=0.2,searchsize=5];',
         'node [shape=box,style="rounded,filled",fontname="DejaVu Sans",fontsize=10];',
         'edge [color="#a5b4c7",arrowsize=0.35,penwidth=0.6,fontsize=7];']
+    legend=('D1S80 | All 307 P paths (1 REF + 306 OBS) | Per-P loss cap '+str(round(display.get('loss_budget_fraction',0)*100))+'%'
+        '\nNODE: unit/run or linear module; x{...}=observed count set; v=exact sequence variants; X?=unresolved fragment (actual bp retained)'
+        '\n?=annotation ambiguity; ~=approximate match; weak=distance >2; orange LOSS*=recorded representation edits; blue border=REF path'
+        '\nEDGE: registered adjacency; P=path count; M=distinct molecule provenance keys. Only registered paths plus their visit parameters are observations.')
+    lines.append('graph [labelloc="t",labeljust="l",fontname="DejaVu Sans",fontsize=14,label='+json.dumps(legend)+'];')
     ref={v['node'] for v in display['paths']['P0001']}
     for n,node in display['nodes'].items():
         label='\n'.join(atom_label(x) for x in node['parts'])+'\n'+n+' | P'+str(len(node['path_ids']))+' M'+str(node['route_molecules'])
@@ -141,10 +166,12 @@ def render_graph(out,display,dot='dot'):
     subprocess.run([dot,'-Tsvg',str(f),'-o',str(out/'D1S80.display.svg')],check=True,timeout=300)
 
 
-def export_budget(out,records,original_tokens,rep_tokens,slots,views,represented,losses,fraction,decisions,render=True):
+def export_budget(out,records,original_tokens,rep_tokens,slots,views,represented,losses,fraction,decisions,render=True,model=None):
     out.mkdir(parents=True,exist_ok=True);originals={r['id']:r['sequence'] for r in records}
     exact=literal_graph(records,original_tokens,slots);graph=literal_graph(records,rep_tokens,slots)
     display,occurrences,variants,transitions=materialize(records,views,graph,losses)
+    display['loss_budget_fraction']=fraction
+    if model:annotate_unknown_hints(display,model)
     validation=validate_parameters(display,graph,represented)
     for name,g,seqs,loss in [('original',exact,originals,[]),('represented',graph,represented,losses)]:
         f=out/('D1S80.'+name+'.gfa');write_gfa(f,g,records,VERSION+'_'+name,seqs,loss)

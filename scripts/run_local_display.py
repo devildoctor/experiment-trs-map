@@ -51,7 +51,7 @@ def main():
         print('BUDGET',fraction,flush=True)
         ts,views,represented,losses,mapping,decisions=plan_edits(records,tokens,slots,model,fraction)
         out=args.out/('%dpct'%round(fraction*100))
-        report=export_budget(out,records,tokens,ts,slots,views,represented,losses,fraction,decisions,not args.no_render)
+        report=export_budget(out,records,tokens,ts,slots,views,represented,losses,fraction,decisions,not args.no_render,model=model)
         reports.append(report);print(json.dumps({k:v for k,v in report.items() if k!='validation'}),flush=True)
     baseline=reports[0]['C'];requested=reports[1:];maximum=max(baseline-r['C'] for r in requested)
     feasible=[r for r in requested if baseline-r['C']>=.9*maximum-1e-9]

@@ -13,6 +13,7 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('result',type=Path);args=ap.parse_args();root=args.result
     records=json.loads((root/'source_members.json').read_text());originals={r['id']:r['sequence'] for r in records}
     by_id={r['id']:r for r in records};chosen=json.loads((root/'selected_annotations.json').read_text());tokens=chosen['tokens'];slots=chosen['slots']
+    model=json.loads((root/'locus_model.json').read_text())
     assert len(originals)==307 and sum(r.get('role')=='reference' for r in records)==1
     assert len({m for r in records for m in r['molecules']})==370
     reports=[]
@@ -34,7 +35,11 @@ def main():
             edit_sum=0
             for i,vid,a in vector:
                 old=tokens[p][i];new=display['sequence_variants'][vid];d=edit_distance(old['exact_bases'],new);edit_sum+=d
-                if old['status']=='unknown':unknown+=1;assert old['exact_bases']==new and a['status']=='unknown'
+                if old['status']=='unknown':
+                    unknown+=1;assert old['exact_bases']==new and a['status']=='unknown'
+                    distances={m['id']:edit_distance(new,m['sequence']) for m in model['motifs']}
+                    h=a['unknown_template_hint'];assert h['distances']==distances
+                    assert h['nearest_types']==sorted(k for k,v in distances.items() if v==min(distances.values()))
                 if d:
                     touched+=1
                     assert p!='P0001' and old['status']=='unit' and old['ambiguity_kind']=='none'

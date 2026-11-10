@@ -52,6 +52,11 @@ insufficient. Alignment options remain available; selected slots are layout
 coordinates, not claims of unique homology. UNKNOWN is never automatically filled,
 deleted or relabeled as a known motif. Different uncertain candidate sets remain
 in the per-P annotation rather than being declared equivalent.
+Unknown fragments also retain separate nearest-template hints against all frozen
+forward catalog motifs, including every tied nearest type and its distance. These
+hints never replace the UNKNOWN label or the primary-optimal annotation DAG.
+The static SVG includes a legend explaining node parameters, uncertainty, loss,
+reference membership, and P/M edge support directly on the image.
 
 E: Enumerate all alternatives between consecutive mandatory boundaries in the
 primary-optimal DAG. Holding the other paths fixed, choose the alternative with

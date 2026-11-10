@@ -37,7 +37,7 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
         if policy['version']!=LOCAL_VERSION or policy['model_version']!=model['version']:raise ValueError('v3 policy/model mismatch')
         tokens,slots,alignments,regions,selection=select_interpretations(features)
         ts,views,represented,losses,_,decisions=plan_edits(records,tokens,slots,model,budget)
-        result=export_budget(destination,records,tokens,ts,slots,views,represented,losses,budget,decisions,render=False)
+        result=export_budget(destination,records,tokens,ts,slots,views,represented,losses,budget,decisions,render=False,model=model)
         display=json.loads((destination/'display_graph.json').read_text(encoding='utf-8'));render_graph(destination,display,dot)
         for name,data in [('source_members',records),('locus_model',model),('structure_policy',policy),
             ('selected_annotations',dict(tokens=tokens,slots=slots)),('alignment_choices',alignments),

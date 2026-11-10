@@ -3,7 +3,7 @@ from pathlib import Path
 from copy import deepcopy
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from vntrlocal import classify,path_view,topology,plan_edits,replace_region,assign_slots
-from vntrlocal_export import literal_graph,materialize,validate_parameters
+from vntrlocal_export import literal_graph,materialize,validate_parameters,annotate_unknown_hints
 from vntrstructure import segment
 
 A='CCTGGTGGTCCTCCTT';B='CCTGGTGGTTCTCCTT';C='GCCGGTGGTCCTCCTT'
@@ -48,6 +48,9 @@ class LocalTests(unittest.TestCase):
         g=literal_graph(rs,rt,ss);d,*_=materialize(rs,views,g,losses)
         validate_parameters(d,g,represented)
         self.assertEqual(represented['P0002'],rs[1]['sequence'])
+        hints=annotate_unknown_hints(d,dict(motifs=[dict(id='A',sequence=A),dict(id='B',sequence=B)]))
+        h=next(h for vid,h in hints.items() if d['sequence_variants'][vid]=='CCTGGTGGTCCT')
+        self.assertEqual(h['minimum_edit_distance'],4);self.assertEqual(h['nearest_types'],['A','B'])
 
     def test_C_cross_whole_structure_and_per_path_budget(self):
         ts={'P0001':tokens([('C',C),('A',A),('A',A),('C',C)]),
