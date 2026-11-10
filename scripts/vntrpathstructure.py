@@ -79,7 +79,7 @@ def summarize(sequence, tokens, audit, model):
                 repeated_edited_subtype=any(n>1 for n in edited.values()))
 
 
-def annotate_paths(records, model_path, locus, imported_rows=None, imported_audit=None,select_representative=False,export_optimal=False):
+def annotate_paths(records, model_path, locus, imported_rows=None, imported_audit=None,select_representative=False,export_optimal=False,decoder='seed_dp'):
     model, dictionary = load_model(model_path, locus)
     model_hash = sha256(model_path.read_bytes()).hexdigest()
     imported = defaultdict(list)
@@ -95,7 +95,7 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
         sequence = record['sequence']; candidates = []
         for o in record['observations']:
             candidates += imported.get((o['sample'], o['platform'], o['fragment']), [])
-        if candidates and not select_representative:
+        if candidates and not select_representative and decoder=='seed_dp':
             if any(f['sequence'] != sequence for f in candidates): raise ValueError('Annotation sequence mismatch')
             tokens = deepcopy(candidates[0]['tokens']); audit = deepcopy(candidates[0].get('annotation', {}))
             signatures = {json.dumps([(unit_key(t), t['start'], t['end']) for t in f['tokens']]) for f in candidates}
@@ -110,7 +110,11 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
                              set(record['samples']).issubset(t['samples']) and
                              sequence.endswith(t['sequence'])), None)
             stop = len(sequence)-len(terminal['sequence']) if terminal else len(sequence)
-            tokens, audit = segment((sequence[:stop], dictionary, 'HiFi'), return_details=True, collect_optimal=True,
+            decode=segment
+            if decoder=='hmm_single':
+                from vntrhmm import segment_hmm
+                decode=segment_hmm
+            tokens, audit = decode((sequence[:stop], dictionary, 'HiFi'), return_details=True, collect_optimal=True,
                                     select_representative=select_representative,export_optimal=export_optimal)
             if terminal:
                 token = dict(start=stop, end=len(sequence), exact_bases=sequence[stop:],
@@ -120,7 +124,8 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
                 tokens.append(token)
                 if audit.get('alternative'): audit['alternative'].append(deepcopy(token))
                 audit['terminal_scope'] = 'frozen_sample_specific_template_compatibility_not_new_support'
-            audit['source'] = 'existing_seed_dp_v2'; audit['annotation_profile'] = 'HiFi_cost_profile'
+            if decoder=='seed_dp':
+                audit['source'] = 'existing_seed_dp_v2'; audit['annotation_profile'] = 'HiFi_cost_profile'
         features[record['id']] = summarize(sequence, tokens, audit, model)
     return model, model_hash, features
 

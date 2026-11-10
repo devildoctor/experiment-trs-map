@@ -210,6 +210,9 @@ def main():
         structure_policy=json.loads(args.structure_policy.read_text(encoding='utf-8'))
         if structure_policy.get('schema_version')==2:
             if args.merge_rules or args.max_loss_bp or args.loss_budget>.05:p.error('v2 uses --loss-budget in [0, .05]')
+        elif structure_policy.get('schema_version')==4:
+            if args.merge_rules or args.max_loss_bp or not 0<=args.loss_budget<=.01:p.error('HMM display uses --loss-budget in [0, .01]')
+            if args.preview_paths:p.error('HMM display preserves all P; use --preview-paths 0')
         elif structure_policy.get('schema_version')==3:
             if args.merge_rules or args.max_loss_bp or args.loss_budget>.10:p.error('v3 uses --loss-budget in [0, .10]')
             if args.preview_paths:p.error('v3 preserves all P; use --preview-paths 0')

@@ -1,0 +1,12 @@
+{
+  "schema_version": 4,
+  "version": "motif-hmm-single-v1",
+  "model_version": "D1S80.GRCh38.structure.v1",
+  "decoder": "single_viterbi",
+  "all_paths": true,
+  "loss_budget_fraction": 0.01,
+  "unit_max_edits": 2,
+  "E_selection": false,
+  "unknown_rewriting": false,
+  "loss_acceptance": "positive post-parameterization post-module N+E reduction"
+}

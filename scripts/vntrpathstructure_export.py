@@ -30,6 +30,13 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
                      preview_limit,dot,imported_rows=None,imported_audit=None):
     from vntrpathgraph_cli import dump, render_preview
     policy=json.loads(policy_path.read_text(encoding='utf-8'))
+    if policy.get('schema_version')==4:
+        from run_hmm_display import export_hmm
+        result=export_hmm(destination,locus,records,model_path,budget,render=bool(dot))
+        result.update(locus=locus.name,status='complete',graph_stats=result['validation'],
+            substituted_bases=result['substitutions'],preview={'paths':sorted(r['id'] for r in records)},metadata=metadata)
+        dump(destination/'structure_policy.json',policy);dump(destination/'summary.json',result)
+        return result
     if policy.get('schema_version')==3:
         from vntrlocal import select_interpretations,plan_edits,VERSION as LOCAL_VERSION
         from vntrlocal_export import export_budget,render_graph
