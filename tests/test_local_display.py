@@ -81,6 +81,12 @@ class LocalTests(unittest.TestCase):
         va=path_view(a,assign_slots(a,ref)[0],ref);vb=path_view(b,assign_slots(b,ref)[0],ref)
         self.assertNotEqual(va[1]['key'],vb[1]['key'])
 
+    def test_D_context_is_frozen_across_loss_budgets(self):
+        ref=tokens([('A',A),('A',A),('B',B)])
+        raw=tokens([('A',A),('U','AAA'),('B',B)]);ss=assign_slots(raw,ref)[0]
+        represented=deepcopy(raw);represented[0].update(motif='B',exact_bases=B)
+        self.assertEqual(path_view(raw,ss,ref)[1]['key'],path_view(represented,ss,ref,raw)[1]['key'])
+
     def test_ambiguous_and_weak_units_not_edited(self):
         ts={'P0001':tokens([('C',C),('A',A),('C',C)]),'P0002':tokens([('C',C),('A',A),('C',C)]),
             'P0003':tokens([('C',C),('B',B),('C',C)])}

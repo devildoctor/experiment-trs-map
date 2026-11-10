@@ -30,6 +30,22 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
                      preview_limit,dot,imported_rows=None,imported_audit=None):
     from vntrpathgraph_cli import dump, render_preview
     policy=json.loads(policy_path.read_text(encoding='utf-8'))
+    if policy.get('schema_version')==3:
+        from vntrlocal import select_interpretations,plan_edits,VERSION as LOCAL_VERSION
+        from vntrlocal_export import export_budget,render_graph
+        model,model_hash,features=annotate_paths(records,model_path,locus,select_representative=True,export_optimal=True)
+        if policy['version']!=LOCAL_VERSION or policy['model_version']!=model['version']:raise ValueError('v3 policy/model mismatch')
+        tokens,slots,alignments,regions,selection=select_interpretations(features)
+        ts,views,represented,losses,_,decisions=plan_edits(records,tokens,slots,model,budget)
+        result=export_budget(destination,records,tokens,ts,slots,views,represented,losses,budget,decisions,render=False)
+        display=json.loads((destination/'display_graph.json').read_text(encoding='utf-8'));render_graph(destination,display,dot)
+        for name,data in [('source_members',records),('locus_model',model),('structure_policy',policy),
+            ('selected_annotations',dict(tokens=tokens,slots=slots)),('alignment_choices',alignments),
+            ('annotation_choices',regions),('interpretation_selection',selection),('original_annotations',features)]:dump(destination/(name+'.json'),data)
+        result.update(locus=locus.name,status='complete',graph_stats=result['validation'],
+            substituted_bases=result['substitutions'],preview={'paths':sorted(represented)},metadata=metadata,model_sha256=model_hash)
+        dump(destination/'summary.json',result)
+        return result
     if policy.get('schema_version')==2:
         from vntrdisplay_loss import build_unit_graph
         from vntrdisplay_export import export_budget

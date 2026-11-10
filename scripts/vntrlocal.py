@@ -132,8 +132,9 @@ def category(t):
     return 'unit',t['motif'],orient,role
 
 
-def path_view(tokens,slots,reference):
+def path_view(tokens,slots,reference,context_tokens=None):
     """A/B/D families, with per-occurrence strings and selected annotation retained."""
+    context_tokens=context_tokens or tokens
     ref_run={};run=0
     for i,t in enumerate(reference):
         if not i or (t['motif'],t['status'],t.get('orientation'))!=(reference[i-1]['motif'],reference[i-1]['status'],reference[i-1].get('orientation')):run+=1
@@ -148,8 +149,8 @@ def path_view(tokens,slots,reference):
                               and reference[c[0]]['motif']==t['motif']}))
         pos=('reference_runs',matching) if matching and t['status']=='unit' else ('slot',slots[i])
         if t['status']=='unknown':
-            left=(slots[i-1],tokens[i-1]['status'],tokens[i-1]['motif']) if i else ('START',)
-            right=(slots[j],tokens[j]['status'],tokens[j]['motif']) if j<len(tokens) else ('END',)
+            left=(slots[i-1],context_tokens[i-1]['status'],context_tokens[i-1]['motif']) if i else ('START',)
+            right=(slots[j],context_tokens[j]['status'],context_tokens[j]['motif']) if j<len(tokens) else ('END',)
             # At least one full unit long: retain the literal block as a distinct structure.
             extent=('short_unresolved',) if len(t['exact_bases'])<min(len(x['template']) for x in reference if x.get('template')) else ('long_block',t['exact_bases'])
             key=(pos,cat,left,right,extent)
@@ -228,8 +229,8 @@ def select_interpretations(features):
     Coordinate descent reaches a regional fixed point, not a proven joint global
     optimum across every P. The reference annotation is frozen as layout origin.
     """
-    regions={p:ambiguity_regions(f) for p,f in features.items()}
-    tokens={p:classify(f['tokens'],regions[p]) for p,f in features.items()}
+    regions={p:ambiguity_regions(f) for p,f in sorted(features.items())}
+    tokens={p:classify(f['tokens'],regions[p]) for p,f in sorted(features.items())}
     reference=tokens['P0001'];slots={};alignments={};views={}
     for p,ts in tokens.items():
         slots[p],alignments[p]=assign_slots(ts,reference);views[p]=path_view(ts,slots[p],reference)
@@ -289,7 +290,10 @@ def plan_edits(records,tokens,slots,model,fraction,initial=None):
             -len({m for p,i in observed[key] for m in by_id[p]['hifi_molecules']}),
             -len({m for p,i in observed[key] for m in by_id[p]['molecules']}),key))
         # One frozen observed representative per type at this local position.
-        represented_types=set();targets=[key for key in targets if not (key[0] in represented_types or represented_types.add(key[0]))]
+        represented_types=set();fixed_targets=[]
+        for key in targets:
+            if key[0] not in represented_types:fixed_targets.append(key);represented_types.add(key[0])
+        targets=fixed_targets
         for target_type,target_bases in targets:
             origin=observed[target_type,target_bases][0];target=tokens[origin[0]][origin[1]]
             for source_type in sorted({tokens[p][i]['motif'] for p,i in members}-{target_type}):
@@ -309,7 +313,7 @@ def plan_edits(records,tokens,slots,model,fraction,initial=None):
                     candidate_types=[target['motif']],match_kind=target['match_kind'])
         return ts
     current_tokens={p:represented_tokens(p,selected) for p in tokens}
-    views={p:path_view(ts,slots[p],reference) for p,ts in current_tokens.items()}
+    views={p:path_view(ts,slots[p],reference,tokens[p]) for p,ts in current_tokens.items()}
     index=ComplexityIndex(views)
     current=topology(views)[3]['C'];accepted=[]
     print('LOCAL_CANDIDATES',fraction,len(candidates),flush=True)
@@ -326,7 +330,7 @@ def plan_edits(records,tokens,slots,model,fraction,initial=None):
             for batch in batches:
                 trial=dict(selected);trial.update({(p,i):candidate['target'] for p,i,d in batch})
                 ps={p for p,i,d in batch};newtokens={p:represented_tokens(p,trial) for p in ps}
-                vv={p:path_view(ts,slots[p],reference) for p,ts in newtokens.items()}
+                vv={p:path_view(ts,slots[p],reference,tokens[p]) for p,ts in newtokens.items()}
                 metrics=index.measure(vv);gain=current-metrics['C']
                 if gain<=0:continue
                 edits=sum(d for p,i,d in batch)
@@ -342,7 +346,7 @@ def plan_edits(records,tokens,slots,model,fraction,initial=None):
         if len(accepted)%20==0:print('LOCAL_MERGES',fraction,len(accepted),'C',current,flush=True)
         assert current==topology(views)[3]['C']
     represented={};losses=[]
-    for p,ts in current_tokens.items():
+    for p,ts in sorted(current_tokens.items()):
         represented[p]=''.join(t['exact_bases'] for t in ts);events=[];rpos=0
         for i,t in enumerate(ts):
             old=tokens[p][i]

@@ -4,6 +4,8 @@ This opt-in entry point implements the user-approved rules without changing flan
 admission, B2 cuts, original P IDs, molecule provenance, or the frozen motif catalog.
 Run `scripts/run_local_display.py --input SOURCE_MEMBERS --model catalogs/D1S80.structure.v1.json --out OUTPUT`.
 The old v1/v2 entry points and result directories remain available.
+The regular `vntrpathgraph_cli.py --graph-mode structure` also accepts the v3
+policy with `--loss-budget` in [0, 0.10] and `--preview-paths 0`.
 
 ## Changed scope
 
@@ -15,6 +17,7 @@ The old v1/v2 entry points and result directories remain available.
 - `vntrlocal_export.py` produces fixed-string original/represented GFA, all-P TXT,
   a variable-node display graph, exact visit vectors, and separate support tables.
 - The new runner, v3 policy, and tests are scoped to this display implementation.
+- The existing CLI/export dispatcher explicitly routes schema 3 to these functions.
 
 ## Approved behavior and implementation limits
 
