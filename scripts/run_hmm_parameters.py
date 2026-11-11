@@ -6,6 +6,7 @@ from pathlib import Path
 from vntrlocal import path_view,topology
 from vntrlocal_export import export_budget
 from vntrdisplay_export import dump,table
+from vntrpartition import require_vntr
 
 VERSION='hmm-weak-skip-parameters-v1'
 
@@ -15,6 +16,7 @@ def read(path):return json.loads(path.read_text(encoding='utf-8'))
 
 def rebuild(source,out,render=True):
     records=read(source/'source_members.json');model=read(source/'locus_model.json')
+    require_vntr(model)
     selected=read(source/'selected_annotations.json');original=selected['tokens']
     slots={p:[tuple(x) for x in ss] for p,ss in selected['slots'].items()}
     previous=source/'1pct';old_display=read(previous/'display_graph.json');before=read(previous/'summary.json')

@@ -10,6 +10,29 @@ from vntrreads import row_molecule_key, write_table
 from vntrsummary import is_primary
 
 
+def repeat_type(model):
+    """Route old frozen models without changing their annotation hashes."""
+    if model.get('repeat_type') in ('STR', 'VNTR'):
+        return model['repeat_type']
+    lengths = {len(m['sequence']) for m in model['motifs']}
+    if lengths and all(1 <= n <= 6 for n in lengths):
+        return 'STR'
+    if lengths and all(n > 6 for n in lengths):
+        return 'VNTR'
+    raise ValueError('Mixed short/long internal templates need repeat_type STR or VNTR')
+
+
+def require_vntr(model):
+    if repeat_type(model) != 'VNTR':
+        raise ValueError('HMM/SKIP is VNTR-only; STR uses the legacy seed_dp structure workflow')
+
+
+def str_policy_path(model_path, locus_name):
+    name = locus_name + '.structure-policy.v1.json'
+    adjacent = Path(model_path).with_name(name)
+    return adjacent if adjacent.is_file() else Path(__file__).resolve().parents[1]/'catalogs'/name
+
+
 def load_model(path, locus):
     model = json.loads(Path(path).read_text(encoding='utf-8'))
     expected = dict(schema_version=1, locus=locus.name, assembly='GRCh38',

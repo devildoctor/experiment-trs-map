@@ -9,6 +9,7 @@ from vntrreads import write_table
 from vntrpathgraph import write_gfa, validate_gfa, graph_support, digest
 from vntrpathstructure import (VERSION, annotate_paths, merge_paths, build_structural_graph,
                               select_subgraph, restore_original)
+from vntrpartition import repeat_type,str_policy_path
 
 def write_path_sequences_txt(path,records,metadata):
     """Write complete original strings, using exactly the GFA path names."""
@@ -30,6 +31,9 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
                      preview_limit,dot,imported_rows=None,imported_audit=None):
     from vntrpathgraph_cli import dump, render_preview
     policy=json.loads(policy_path.read_text(encoding='utf-8'))
+    if policy.get('schema_version')==4 and repeat_type(json.loads(model_path.read_text(encoding='utf-8')))=='STR':
+        return export_structure(destination,locus,records,excluded,metadata,model_path,
+            str_policy_path(model_path,locus.name),0,preview_limit,dot,imported_rows,imported_audit)
     if policy.get('schema_version')==4:
         from run_hmm_display import export_hmm
         result=export_hmm(destination,locus,records,model_path,budget,render=bool(dot),dot=dot)

@@ -1,4 +1,4 @@
-"""Effective motif dictionary + HMM + expandable families at a per-P loss cap."""
+"""VNTR effective dictionary/HMM/families; STR legacy frozen-dictionary graphs."""
 import argparse,json,subprocess,time
 from copy import deepcopy
 from hashlib import sha256
@@ -11,8 +11,9 @@ from vntrdisplay_export import dump,table
 from vntrpathstructure import annotate_paths
 from vntreffmotifs import select_motifs
 from vntrfamilies import select_families,apply_families
+from vntrpartition import repeat_type,str_policy_path
 
-VERSION='efficient-motif-family-v1'
+VERSION='efficient-motif-family-v2'
 
 
 def annotate(records,model_path,locus):
@@ -34,6 +35,29 @@ def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True):
     assert records[0]['id']=='P0001' and records[0]['role']=='reference'
     dump(out/'source_members.json',records);dump(out/'locus_model.original.json',original_model)
     table(out/'input_path_mapping.tsv',[dict(path=r['id'],source_path=r.get('source_path_id',''),role=r['role'],sha256=r['sha256']) for r in records])
+    kind=repeat_type(original_model)
+    processing=dict(repeat_type=kind,decoder='seed_dp' if kind=='STR' else 'hmm_single',
+        hmm_skip=kind=='VNTR',efficient_dictionary=kind=='VNTR',family_display=kind=='VNTR',
+        q=q if kind=='VNTR' else None,loss_fraction=fraction if kind=='VNTR' else 0)
+    dump(out/'processing.json',processing)
+    if kind=='STR':
+        from vntrpathstructure_export import export_structure
+        folder=out/'str_legacy';folder.mkdir()
+        metadata=dict(backbone_path='P0001',processing=processing)
+        summary=export_structure(folder,locus,records,[],metadata,model_path,
+            str_policy_path(model_path,locus.name),0,0,'dot' if render else None)
+        stats=summary['graph_stats']['structure']
+        comparison=[dict(stage='str_legacy',motifs=len(original_model['motifs']),N_d=stats['nodes'],
+            E_d=stats['edges'],C=stats['nodes']+stats['edges'],paths=summary['paths'],molecules=summary['molecules'],
+            total_edits_bp=summary['loss_bp'],lossy_paths=summary['lossy_paths'],max_path_loss_fraction=0)]
+        dump(out/'comparison.json',comparison);table(out/'comparison.tsv',comparison)
+        dump(out/'provenance.json',dict(version=VERSION,locus=locus.name,**processing,
+            input_sha256=sha256(input_path.read_bytes()).hexdigest(),full_model_sha256=sha256(model_path.read_bytes()).hexdigest(),
+            source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[1]).decode().strip(),
+            source_input=str(input_path),source_model=str(model_path),reference=str(reference) if reference else None,
+            seconds=round(time.monotonic()-start,3)))
+        print('FINISHED',locus.name,json.dumps(comparison),flush=True)
+        return comparison
     full,full_hash,features,tokens,slots=annotate(records,model_path,locus)
     dump(out/'full_dictionary_annotations.json',dict(features=features,tokens=tokens,slots=slots))
     choice=select_motifs(full,tokens,q);dump(out/'dictionary_selection.json',choice)
@@ -77,7 +101,7 @@ def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True):
     if render:
         from vntrfamily_viewer import write_viewer
         write_viewer(out,locus.name)
-    dump(out/'provenance.json',dict(version=VERSION,locus=locus.name,q=q,loss_fraction=fraction,
+    dump(out/'provenance.json',dict(version=VERSION,locus=locus.name,**processing,
         input_sha256=sha256(input_path.read_bytes()).hexdigest(),full_model_sha256=full_hash,effective_model_sha256=model_hash,
         source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[1]).decode().strip(),
         source_input=str(input_path),source_model=str(model_path),reference=str(reference) if reference else None,

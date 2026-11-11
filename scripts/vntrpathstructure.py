@@ -9,7 +9,7 @@ from hashlib import sha256
 import json
 
 from vntrpathgraph import digest, validate_graph, compact_graph
-from vntrpartition import load_model
+from vntrpartition import load_model, require_vntr
 from vntrstructure import segment
 
 VERSION = '2.0-structure-first'
@@ -81,6 +81,7 @@ def summarize(sequence, tokens, audit, model):
 
 def annotate_paths(records, model_path, locus, imported_rows=None, imported_audit=None,select_representative=False,export_optimal=False,decoder='seed_dp'):
     model, dictionary = load_model(model_path, locus)
+    if decoder=='hmm_single':require_vntr(model)
     model_hash = sha256(model_path.read_bytes()).hexdigest()
     imported = defaultdict(list)
     if imported_rows:

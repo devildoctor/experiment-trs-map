@@ -1,6 +1,10 @@
 # 有效字典、HMM 与可展开家族图
 
-新入口 `scripts/run_efficient_family.py` 对已有完整路径运行：完整字典 HMM 注释、q=0.1 有效字典选择、有效字典 HMM 重注释、逐 P 3% 有损归并，以及位置兼容的展示家族选择。边界和读段筛选沿用现有输入。
+入口 `scripts/run_efficient_family.py` 按位点类型分流。VNTR 运行完整字典 HMM 注释、q=0.1 有效字典选择、有效字典 HMM 重注释、逐 P 3% 有损归并及展示家族选择。STR 沿用冻结完整字典、`seed_dp` 和原有无损结构图；不进入 HMM/SKIP、精简字典或新家族流程。边界和读段筛选沿用现有输入。
+
+模型可显式声明 `repeat_type: STR` 或 `VNTR`。为保持旧冻结字典文件及其导入注释哈希，现有模型不改写：内部模板均为 1–6 bp 时走 STR，均大于 6 bp 时走 VNTR；混合长度模型须显式声明。末端模板不参与分类。ATXN2 因而走 STR，D1S80 走 VNTR。
+
+STR 使用模型旁或内置目录中的 `<locus>.structure-policy.v1.json`，保留 CTG/TTG 等独立单元及中断类型，旧版最大改写为 0 bp。`--q` 和 `--loss-fraction` 仅作用于 VNTR。即使主结构图入口对 STR 传入 HMM policy，也转入旧版 STR 输出；专门的 HMM 重建入口只接受 VNTR。
 
 ## 字典选择
 
@@ -33,5 +37,7 @@ ATXN2 的旧观察路径输入若没有独立参考 P，需要另传 `--referenc
 - `comparison.tsv`：各阶段节点、边及实际修改量。
 - `dictionary_selection.json`、`family_selection.json`：实际选定的字典和家族。
 - `<locus>.families.html`：离线查看家族/展开图，按 P 高亮并查看各节点的单元原文。
+
+STR 输出在 `str_legacy/`，其中 `index.html`、`<locus>.preview.svg`、`<locus>.structure.gfa` 和 `paths.tsv` 沿用旧格式。根目录 `processing.json` 记录实际使用的流程。
 
 家族与展开状态的 FASTA、GFA 和改写账本必须逐字节一致。图上的任意拼接路线不是新增观测；登记路径及其访问参数用于序列还原。
