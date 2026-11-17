@@ -88,9 +88,6 @@ class Allele:
     identity: float = 0.0
     tokens: list = field(default_factory=list)
     uncertain: bool = False
-    dbg_k: int = 0
-    graph_support: float = 0.0
-    unitigs: int = 0
     seed_source: tuple = ()
     seed_molecules: tuple = ()
     call_status: str = "candidate"
@@ -749,33 +746,3 @@ def graph_evidence(nodes, edges, paths):
                             uncertain=a.uncertain,flags=a.flags,
                             call_status=a.call_status,flanks="reference_context_25bp") for a,ids in paths],
                 contract="Report only saved full paths; support is unique molecules, not traversals.")
-
-
-# 候选内部的局部 k-mer 连边覆盖率只作辅助证据，不能证明全长相位或拷贝数。
-def dbg_evidence(allele, reads, destination=None):
-    """Directed exact-string k-mers; evidence only, never prune/invent paths."""
-    selected = [r for r in reads if r.molecule_key in allele.read_ids]
-    k = min(31,max(1,len(allele.sequence)//2))
-    edges = defaultdict(set)
-    ordered = []
-    for read in selected:
-        path = [read.sequence[i:i+k] for i in range(max(0,len(read.sequence)-k+1))]
-        ordered.append(dict(molecule_key=read.molecule_key,platforms=read.observed_platforms,path=path))
-        for edge in set(zip(path,path[1:])):
-            edges[edge].add(read.molecule_key)
-    sequence = allele.sequence
-    walked = [sequence[i:i+k] for i in range(max(0,len(sequence)-k+1))]
-    path_edges = list(zip(walked,walked[1:]))
-    supported = sum(bool(edges.get(e)) for e in path_edges)/max(1,len(path_edges))
-    if not path_edges:
-        supported = float(any(r.sequence == sequence for r in selected))
-    incoming, outgoing = defaultdict(set),defaultdict(set)
-    for a,b in edges:
-        outgoing[a].add(b)
-        incoming[b].add(a)
-    branching = sum(len(incoming[n]) != 1 or len(outgoing[n]) != 1 for n in set(incoming)|set(outgoing))
-    if destination is not None:
-        destination.write_text(compact(dict(k=k,encoding="oriented_exact_string",overlap=k-1,
-                                            edges=[dict(start=a,end=b,molecule_ids=sorted(ids)) for (a,b),ids in sorted(edges.items())],
-                                            candidate_path=walked,read_paths=ordered)),encoding="utf-8")
-    return k,supported,max(1,branching)

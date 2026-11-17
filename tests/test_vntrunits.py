@@ -6,7 +6,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from vntrdbg_analysis import primitive_units
+from vntrunits import primitive_units
 
 
 MOTIF = 'CCTGGTGGTCCTCCTT'

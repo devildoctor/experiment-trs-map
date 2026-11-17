@@ -1,3 +1,5 @@
+> 历史版本说明：2026-11-17 已移除 de Bruijn 图及其分析 CLI，文中相关命令不再可用。纯序列单元注释和终端证据库仍保留；当前入口以 README 为准。
+
 # D1S80 right-terminal templates (opt-in)
 
 The shared D1S80 last 16 bases were absent from the ordinary dictionary. Its

@@ -1,5 +1,7 @@
 # vntr-point-graph
 
+**2026-11-17：已移除 de Bruijn 图功能。** 不再提供 `--dbg-view`、多 k 图与联合分支分析入口，主点图不再输出 `*.dbg.json`、`dbg_k`、`graph_support` 或 `low_local_graph_support`。现有分析结果未删除。纯序列单元注释保留于 `scripts/vntrunits.py`，终端证据库保留于 `scripts/vntrterminal.py`。下方历史分支及旧文档记录仅描述对应历史版本。
+
 **当前点位图侧翼流程：B2（2026-11-09）。** 固定 catalog 核心和左右 250 bp 模板，自动应用于点位图、结构分解及 all-read 入口。B0/B1/W1–W8 和 100 bp 诊断已移除，历史结果保留。完整流程见 [B2 使用与核对规则](docs/flank-b2.md)。当前实现分支为 `feat/b2-only-20261109`；下方早期分支说明为历史记录。
 
 面向长读段 VNTR / STR 的可审计点位图分析工具。输入按位点整理的 BAM、匹配参考及位点目录，输出明确保存的序列路径、分子证据、重复单元注释和 GFA/SVG。
@@ -7,8 +9,8 @@
 主要功能：
 
 1. 依据两侧锚点提取实际读段序列，按独立分子去重，保留定位与候选冲突。
-2. 生成候选序列点图，并提供可选 STR 单元图与 VNTR compact de Bruijn 图。
-3. 在冻结的 D1S80 图输入上分析连续跨分支支持与16 bp基本单元分解。
+2. 生成候选序列点图，并提供可选 STR 单元图和 VNTR 路径结构图。
+3. 支持重复单元注释、VNTR HMM/SKIP 分解和精简字典；保留独立的 D1S80 16 bp 单元注释库。
 
 程序独立实现，不依赖 danbing-tk、TRGT、LongTR、vamos 或 PGGB。当前属于研究实现；图路径、局部支持和单元注释不能自动视为已验证的基因型。
 
@@ -41,7 +43,6 @@ conda create -n vntr-point-graph -c conda-forge -c bioconda python=3.11 samtools
 conda activate vntr-point-graph
 python -m pip install -r requirements-anchors.txt
 python scripts/vntrgraph.py --help
-python scripts/vntrdbg_analysis.py --help
 ```
 
 samtools 和参考构建版本应记录在运行记录中。集群脚本中的账号、分区、Python和数据路径是原部署配置，换环境后必须先调整。
@@ -65,7 +66,7 @@ bamdata_by_locus/<locus>/<sample>/<HiFi|ONT|ONTUL>/<name>.<locus>.bam
 BED第4列使用 `ID=...;MOTIFS=...;REPEAT_START=...;REPEAT_END=...;BOUNDARY=confirmed`。
 第2、3列是搜索窗口，重复区必须位于窗口内。`confirmed` 是输入目录的声明，不是程序新提供的实验验证。不能为凑整数单元而裁剪端部。
 
-主图、dBG、read-view、structure/summary 的分子键统一为 `[sample, namespace, read_name]`。`namespace` 优先取 `--sources` 的显式配置，否则取该记录 RG 对应的 LB，缺失时为空；旧结果缺 namespace 时也按空值兼容。BAM 路径和平台不自动成为 namespace。同一分子跨BAM、跨平台重复出现只计一次；平台小计可能重叠。主/补充记录不会拼接成未观测的完整序列。
+主图、read-view、structure/summary 的分子键统一为 `[sample, namespace, read_name]`。`namespace` 优先取 `--sources` 的显式配置，否则取该记录 RG 对应的 LB，缺失时为空；旧结果缺 namespace 时也按空值兼容。BAM 路径和平台不自动成为 namespace。同一分子跨BAM、跨平台重复出现只计一次；平台小计可能重叠。主/补充记录不会拼接成未观测的完整序列。
 
 ## Usage
 
@@ -86,46 +87,6 @@ python scripts/vntrgraph.py run --bam-dir "$BAMS" --reference "$REFERENCE" \
 D1S80严格模式可能因主染色体和ALT上的锚点重复而得不到完整候选。只有验证参考与等价表匹配后，才显式增加
 `--reference-equivalence catalogs/grch38_d1s80_alt_equivalence_v1.tsv`；结果应继续保留等价映射假设。
 
-### Scenario 2: compact VNTR graph and k comparison
-
-先完成同一批输入的点图提取，再运行：
-
-```bash
-python scripts/vntrgraph.py --dbg-view --evidence-dir "$RUN/pointgraph/D1S80" \
-  --bam-dir "$BAMS" --reference "$REFERENCE" --catalog "$CATALOG" \
-  --models catalogs/grch38_graph_models_v1.tsv --locus D1S80 \
-  --k 17 21 31 33 49 65 --samtools "$(command -v samtools)" --out "$RUN/dbg/D1S80"
-python tests/validate_dbg.py "$RUN/dbg/D1S80"
-```
-
-边来自真实连续k+1-mer。支持视图由 `--min-support` 控制（默认3），要求同一样本内的独立分子数达标；被过滤的路径拆段，不补桥。k是图上下文长度，不是重复单元长度。完整语义和输出见 [VNTR_DBG.md](VNTR_DBG.md)。
-
-### Scenario 3: joint branch evidence and repeat units
-
-```bash
-python scripts/vntrdbg_analysis.py --dbg-dir "$RUN/dbg/D1S80" \
-  --pointgraph-dir "$RUN/pointgraph/D1S80" --out "$RUN/joint-units" --k 21 33 --branch-min-support 3
-```
-
-`--branch-min-support` 是本阶段定义分支的独立门槛，默认3，不会自动继承建图门槛；实际值写入 `manifest.json`。
-
-仅接受可核对来源哈希的冻结D1S80输入。连续跨分支支持要求一个观测路径覆盖完整有序区间，不能把不同片段的票相加当作联合支持。完整候选匹配要求双侧锚定及整条序列精确一致。详见 [VNTR_DBG_ANALYSIS.md](VNTR_DBG_ANALYSIS.md)。
-
-### Scenario 4: independently validated right-terminal templates
-
-仅本终端功能分支支持；默认关闭，开启后全部 `primitive_cn=NA`。
-
-```bash
-python scripts/vntrdbg_analysis.py --dbg-dir "$RUN/dbg/D1S80" \
-  --pointgraph-dir "$RUN/pointgraph/D1S80" --out "$RUN/terminal-units" --k 21 33 \
-  --terminal-units --terminal-min-support 3 --catalog "$CATALOG" --reference "$REFERENCE"
-```
-
-参考与完整OBS提名精确方向/相位的末16bp；候选不提名或投票。每样本至少3个独立分子，要求真实切片、完整锚定、内侧重复上下文及实际右侧参考上下文均通过验证。新模板只能匹配序列右端；局部OBS不用该模板。边界与原始碱基保持不变。
-
-新增 `terminal_unit_candidates.tsv` 和 `terminal_molecules.tsv` 保存提名、支持、拒绝原因及证据；详见 [D1S80_TERMINAL_UNITS.md](D1S80_TERMINAL_UNITS.md)。
-
-
 ## Output files
 
 | 文件/目录 | 解释 |
@@ -134,16 +95,11 @@ python scripts/vntrdbg_analysis.py --dbg-dir "$RUN/dbg/D1S80" \
 | `molecules.tsv`, `anchor_decisions.jsonl` | 原始分子切片、来源、锚定判断与拒绝原因 |
 | `candidates.tsv`, `assignments.tsv`, `genotypes.tsv` | 候选、分配、候选组合与不确定性 |
 | `motifs.tsv`, `tokens.tsv` | 字典与原始切片注释 |
-| `input_paths.json`, `input_summary.json` | dBG冻结输入和校验信息 |
-| `k*/` | 各k的完整证据图、支持图及逐路径SVG |
-| `joint_queries.tsv`, `joint_support.tsv`, `joint_molecules.tsv` | 有序区间、去重支持与逐分子证据 |
-| `primitive_units.tsv`, `unit_summary.tsv` | 基本单元的主/备选分解及完整/部分/未知计数 |
 | `manifest.json`, `parameters.tsv` | 方法版本、参数、输入来源与哈希 |
 
-完整证据版另有 `events.tsv`, `molecule_events.tsv`, `motif_counts.tsv`；初版不提供全部这些文件。
 原始碱基和分子身份可能存在于TSV/JSON/GFA中；这些分析输出不是源码发布内容。
 
-点图切片之间使用0M连接；compact dBG使用k−1重叠，重建路径时必须去除重叠。GFA节点、边数或自环次数不能直接当作生物学CN。
+点图切片之间使用0M连接。GFA节点、边数或自环次数不能直接当作生物学CN。
 
 ## Tests and reproducibility
 
@@ -153,8 +109,6 @@ python tests/integration_synthetic.py
 ```
 
 真实数据运行应保存源码提交、输入哈希、参考身份、参数、调度日志和独立验收结果。Slurm模板位于 `slurm/`，要求先准备其指定的源码快照及校验清单，不能直接在登录节点运行分析。
-
-修复前的终端功能分支已通过186项单元测试及独立D1S80验收：199条冻结路径、8条候选；共同末端模板由59个独立分子支持。8候选的unknown均为15→0，主注释前缀、原始序列、边界及联合支持保持不变。C10完整单元26→27，CN仍为NA。此结果针对已记录的冻结数据，不代表任意输入的预期结果。
 
 ## Interpretation and limitations
 
@@ -174,6 +128,5 @@ python tests/integration_synthetic.py
 - [锚定与来源规则](ANCHOR_UPDATE.md)
 - [STR表达](STR_EXPRESSION.md)与[STR单元图](STR_GRAPH.md)
 - [读段视图](READ_VIEW.md)、[结构视图](STRUCTURE_VIEW.md)
-- [VNTR图](VNTR_DBG.md)、[联合支持与分解](VNTR_DBG_ANALYSIS.md)
 
 README组织方式参考 [ChaissonLab/danbing-tk](https://github.com/ChaissonLab/danbing-tk) 的功能、依赖、分场景运行和文件说明。算法与实现均按本仓库实际代码说明，不代表复现danbing-tk的性能。问题反馈请附源码提交、命令、参数和已去除敏感数据的错误日志，提交至仓库Issues。

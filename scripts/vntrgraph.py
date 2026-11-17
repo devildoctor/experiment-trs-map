@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vntrcore import (VERSION, DNA, Read, Allele, Token, compact, deduplicate_reads,
     edit_distance, similarity, align_to_seed, make_consensus, cluster_reads,
     call_candidates, discover_motifs, motif_dictionary, decompose, token_counts,
-    build_graph, graph_evidence, dbg_evidence)
+    build_graph, graph_evidence)
 from vntrcore import revcomp as reverse_complement
 import vntranchors
 from vntrmotifs import compound_annotations
@@ -397,7 +397,6 @@ def process_locus(locus,args,reference,profiles):
     for allele in alleles:
         allele.tokens,explained,allele.annotation = decompose(allele.sequence,base,return_details=True)
         allele.compound_details = compound_annotations(allele.tokens,compound)
-        allele.dbg_k,allele.graph_support,allele.unitigs = dbg_evidence(allele,reads,destination/f'{allele.name}.dbg.json')
         if locus.boundary_status != 'confirmed':
             allele.flags.append('candidate_boundaries')
         if any(r.molecule_key in allele.read_ids and r.anchor_scores and min(r.anchor_scores)<1 for r in reads):
@@ -410,9 +409,6 @@ def process_locus(locus,args,reference,profiles):
             allele.flags.append('partial_units')
         if any(t.annotation_ambiguity for t in allele.tokens):
             allele.flags.append('annotation_ambiguity')
-        # 此 90% 指局部 k-mer 连边覆盖，不是单元聚合相似度或序列正确率。
-        if allele.graph_support < .90:
-            allele.flags.append('low_local_graph_support')
         allele.uncertain |= any(x not in {'stable_residual_split','residual_discovery'} for x in allele.flags)
     reason = '; '.join(failures)
     if not alleles and not reason:
@@ -455,7 +451,7 @@ def process_locus(locus,args,reference,profiles):
                  uncertain=a.uncertain,flags=sorted(set(a.flags)),unit_counts=token_counts(a.tokens),
                  base_metrics=a.annotation.get('metrics',{}),annotation_score_gap=a.annotation.get('score_gap'),
                  phase_policy='fixed_template_phase',compound_counts=dict(Counter(h['catalog_motif'] for h in a.compound_details if 'catalog_motif' in h)),
-                 compound_details=a.compound_details,dbg_k=a.dbg_k,graph_support=a.graph_support) for a in candidates]
+                 compound_details=a.compound_details) for a in candidates]
     fields = list(rows[0]) if rows else ['allele','sample','call_status']
     write_tsv(destination/'candidates.tsv',fields,rows)
     write_tsv(destination/'audit.tsv',fields,[row for row in rows if row['read_support'] >= args.min_support])
@@ -531,10 +527,6 @@ def main():
 
 # 统一命令入口按视图参数分派；未指定专用视图时运行基础点图流程。
 if __name__ == '__main__':
-    if '--dbg-view' in sys.argv:
-        sys.argv.remove('--dbg-view')
-        from vntrdbg import main as dbg_main
-        raise SystemExit(dbg_main())
     if '--structure-view' in sys.argv:
         sys.argv.remove('--structure-view')
         from vntrstructure import main as structure_main

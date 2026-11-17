@@ -1,3 +1,5 @@
+> 历史版本说明：2026-11-17 已移除 de Bruijn 图及其分析 CLI，文中相关命令不再可用。纯序列单元注释和终端证据库仍保留；当前入口以 README 为准。
+
 # VNTR 审查问题修复与验证
 
 更新日期：2026-10-30。修复以 `5be507688fe7d1f8da4c1786fd85d6df8dfccb0e` 及其已添加的中文注释为基础。GitHub 分支：[fix/vntr-review-20261029](https://github.com/devildoctor/experiment-trs-map/tree/fix/vntr-review-20261029)。
