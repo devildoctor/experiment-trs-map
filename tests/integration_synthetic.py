@@ -71,6 +71,14 @@ def main():
         assert len(paths) == 3, paths
         assert set(paths) == {left[-25:] + repeat1 + right[:25], left[-25:] + repeat2 + right[:25],left[-25:]+expanded+right[:25]}
         audit=list(csv.DictReader((result/'audit.tsv').open(),delimiter='\t'))
+        # Removed auxiliary graph artifacts must not silently reappear.
+        assert not list(result.glob('*.dbg.json'))
+        for table in ('audit.tsv', 'candidates.tsv'):
+            with (result/table).open() as handle:
+                rows = csv.DictReader(handle, delimiter='\t')
+                assert not {'dbg_k', 'graph_support', 'unitigs'} & set(rows.fieldnames)
+                for row in rows:
+                    assert 'low_local_graph_support' not in json.loads(row['flags'])
         s1=next(x for x in audit if x['sample']=='S1')
         assert int(s1['read_support'])==6, s1
         assert json.loads(s1['platform_support'])=={'HiFi':3,'ONT':3,'ONTUL':3}, s1

@@ -1,4 +1,4 @@
-> 历史版本说明：2026-11-17 已移除 de Bruijn 图及其分析 CLI，文中相关命令不再可用。纯序列单元注释和终端证据库仍保留；当前入口以 README 为准。
+> 2026-11-17：当前仅保留单元注释和终端证据库；下方旧实验结果为历史记录。
 
 # D1S80 right-terminal templates (opt-in)
 
@@ -9,12 +9,15 @@ from REF and full OBS and validates them using independent molecules. It does
 not modify repeat boundaries, sequences, the ordinary dictionary, the GFA, or
 joint-support rules. Candidate paths never nominate or vote; REF only nominates.
 
-Enable only in `scripts/vntrdbg_analysis.py` with `--terminal-units --catalog BED
---reference FASTA`. The command is restricted to D1S80 and defaults to off.
-`--terminal-min-support` defaults to 3 and cannot be lower. Frozen evidence
-hashes, original catalog, reference FAI/size/mtime and reference interval sequence
-are checked before validation. Existing ALT-equivalence and candidate uncertainty
-remain applicable; this does not establish unique primary-contig mapping.
+## Current library interface (2026-11-17)
+
+The former analysis CLI has been removed. Terminal evidence validation remains
+in `scripts/vntrterminal.py:validate_terminals`; sequence-only annotation remains
+in `scripts/vntrunits.py:primitive_units`. These are Python library functions,
+not standalone command-line entry points. The caller must supply the required
+records, molecule evidence, anchor decisions and unchanged reference context.
+The former CLI's input/provenance checks are not automatically supplied by these
+libraries. See their signatures and the terminal evidence/integration tests.
 
 For each sample and exact oriented terminal template, a supporting molecule must:
 
@@ -46,13 +49,10 @@ templates in unit rows. `annotated_full_units` is a descriptive count. All
 `primitive_cn` values are explicitly `NA` under `withheld_terminal_validation`,
 including otherwise resolved counts. No genotype or main graph is updated.
 
-Run `slurm/vntrterminal_analysis.sbatch` with `RUN_DIR`, `BASE_RUN`, `OLD_RUN` and
-`REFERENCE`. It runs the full test suite, verifies the default mode's eight TSVs
-against the previous run, runs opt-in analysis and independent validation, and
-checks all frozen graph-result hashes before/after. The validator compares all
-eight candidates and REF, prefix annotations, actual last-unit coordinates,
-sequence reconstruction, CN withholding and unchanged joint support. Aggregate
-comparison and verification outputs can be reviewed without exporting raw reads.
+The former Slurm wrapper and its graph-dependent acceptance validator were
+removed with the analysis CLI. Their original workflow is available in the
+[historical document](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/D1S80_TERMINAL_UNITS.md).
+The results below describe that historical run, not a current runnable command.
 
 ## Validated frozen D1S80 run (2026-10-23)
 

@@ -1,4 +1,4 @@
-> 历史版本说明：2026-11-17 已移除 de Bruijn 图及其分析 CLI，文中相关命令不再可用。纯序列单元注释和终端证据库仍保留；当前入口以 README 为准。
+> 历史版本说明：2026-11-17 已移除 de Bruijn 图及其分析 CLI，文中相关命令不再可用。纯序列单元注释和终端证据库仍保留；本文整体属于历史审计，不作为当前命令或调用链说明；当前入口见 [删除后使用与核验](debruijn-removal-audit.md)。
 
 # VNTR 点位图程序：中文代码功能解读
 
@@ -753,265 +753,265 @@ support_fraction = support_molecules / informative_molecules
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `dependencies` | 函数 | [27](../scripts/vntranchors.py#L27) |
-| `canonical` | 函数 | [36](../scripts/vntranchors.py#L36) |
-| `nonoverlapping` | 函数 | [41](../scripts/vntranchors.py#L41) |
-| `load_equivalences` | 函数 | [50](../scripts/vntranchors.py#L50) |
-| `normalized_position` | 函数 | [77](../scripts/vntranchors.py#L77) |
-| `reference_profiles` | 函数 | [89](../scripts/vntranchors.py#L89) |
-| `endpoint_costs` | 函数 | [164](../scripts/vntranchors.py#L164) |
-| `AnchorOverflow` | 类 | [194](../scripts/vntranchors.py#L194) |
-| `flank_candidates` | 函数 | [199](../scripts/vntranchors.py#L199) |
-| `Record` | 类 | [254](../scripts/vntranchors.py#L254) |
-| `Record.original_base` | 函数 | [273](../scripts/vntranchors.py#L273) |
-| `Record.original_interval` | 函数 | [277](../scripts/vntranchors.py#L277) |
-| `Record.original_sequence` | 函数 | [281](../scripts/vntranchors.py#L281) |
-| `Record.original_start` | 函数 | [285](../scripts/vntranchors.py#L285) |
-| `mapped_bases` | 函数 | [290](../scripts/vntranchors.py#L290) |
-| `parse_records` | 函数 | [305](../scripts/vntranchors.py#L305) |
-| `consistent_sequences` | 函数 | [356](../scripts/vntranchors.py#L356) |
-| `localization` | 函数 | [374](../scripts/vntranchors.py#L374) |
-| `competing_mapping` | 函数 | [400](../scripts/vntranchors.py#L400) |
-| `choose_pair` | 函数 | [435](../scripts/vntranchors.py#L435) |
-| `extract_records` | 函数 | [454](../scripts/vntranchors.py#L454) |
-| `extract_parsed` | 函数 | [461](../scripts/vntranchors.py#L461) |
-| `extract_bam` | 函数 | [586](../scripts/vntranchors.py#L586) |
-| `extract_bams` | 函数 | [597](../scripts/vntranchors.py#L597) |
+| `dependencies` | 函数 | [27](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L27) |
+| `canonical` | 函数 | [36](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L36) |
+| `nonoverlapping` | 函数 | [41](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L41) |
+| `load_equivalences` | 函数 | [50](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L50) |
+| `normalized_position` | 函数 | [77](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L77) |
+| `reference_profiles` | 函数 | [89](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L89) |
+| `endpoint_costs` | 函数 | [164](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L164) |
+| `AnchorOverflow` | 类 | [194](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L194) |
+| `flank_candidates` | 函数 | [199](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L199) |
+| `Record` | 类 | [254](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L254) |
+| `Record.original_base` | 函数 | [273](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L273) |
+| `Record.original_interval` | 函数 | [277](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L277) |
+| `Record.original_sequence` | 函数 | [281](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L281) |
+| `Record.original_start` | 函数 | [285](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L285) |
+| `mapped_bases` | 函数 | [290](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L290) |
+| `parse_records` | 函数 | [305](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L305) |
+| `consistent_sequences` | 函数 | [356](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L356) |
+| `localization` | 函数 | [374](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L374) |
+| `competing_mapping` | 函数 | [400](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L400) |
+| `choose_pair` | 函数 | [435](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L435) |
+| `extract_records` | 函数 | [454](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L454) |
+| `extract_parsed` | 函数 | [461](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L461) |
+| `extract_bam` | 函数 | [586](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L586) |
+| `extract_bams` | 函数 | [597](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntranchors.py#L597) |
 
 ### vntrcore.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `revcomp` | 函数 | [23](../scripts/vntrcore.py#L23) |
-| `compact` | 函数 | [27](../scripts/vntrcore.py#L27) |
-| `Read` | 类 | [33](../scripts/vntrcore.py#L33) |
-| `Read.molecule_key` | 函数 | [53](../scripts/vntrcore.py#L53) |
-| `Read.observed_platforms` | 函数 | [57](../scripts/vntrcore.py#L57) |
-| `Token` | 类 | [63](../scripts/vntrcore.py#L63) |
-| `Token.__iter__` | 函数 | [76](../scripts/vntrcore.py#L76) |
-| `Allele` | 类 | [82](../scripts/vntrcore.py#L82) |
-| `deduplicate_reads` | 函数 | [107](../scripts/vntrcore.py#L107) |
-| `edit_distance` | 函数 | [138](../scripts/vntrcore.py#L138) |
-| `similarity` | 函数 | [170](../scripts/vntrcore.py#L170) |
-| `AlignmentUnresolved` | 类 | [174](../scripts/vntrcore.py#L174) |
-| `align_to_seed` | 函数 | [179](../scripts/vntrcore.py#L179) |
-| `alignment_counts` | 函数 | [227](../scripts/vntrcore.py#L227) |
-| `make_consensus` | 函数 | [247](../scripts/vntrcore.py#L247) |
-| `_candidate_groups` | 函数 | [289](../scripts/vntrcore.py#L289) |
-| `split_stable_variants` | 函数 | [310](../scripts/vntrcore.py#L310) |
-| `generate_candidates` | 函数 | [356](../scripts/vntrcore.py#L356) |
-| `assign_reads` | 函数 | [392](../scripts/vntrcore.py#L392) |
-| `call_candidates` | 函数 | [434](../scripts/vntrcore.py#L434) |
-| `cluster_reads` | 函数 | [514](../scripts/vntrcore.py#L514) |
-| `canonical_motif` | 函数 | [519](../scripts/vntrcore.py#L519) |
-| `motif_orientation` | 函数 | [523](../scripts/vntrcore.py#L523) |
-| `discover_motifs` | 函数 | [532](../scripts/vntrcore.py#L532) |
-| `motif_dictionary` | 函数 | [575](../scripts/vntrcore.py#L575) |
-| `cigar_edit` | 函数 | [619](../scripts/vntrcore.py#L619) |
-| `decompose` | 函数 | [631](../scripts/vntrcore.py#L631) |
-| `decompose.convert` | 函数 | [672](../scripts/vntrcore.py#L672) |
-| `token_counts` | 函数 | [696](../scripts/vntrcore.py#L696) |
-| `build_graph` | 函数 | [704](../scripts/vntrcore.py#L704) |
-| `graph_evidence` | 函数 | [730](../scripts/vntrcore.py#L730) |
-| `dbg_evidence` | 函数 | [754](../scripts/vntrcore.py#L754) |
+| `revcomp` | 函数 | [23](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L23) |
+| `compact` | 函数 | [27](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L27) |
+| `Read` | 类 | [33](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L33) |
+| `Read.molecule_key` | 函数 | [53](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L53) |
+| `Read.observed_platforms` | 函数 | [57](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L57) |
+| `Token` | 类 | [63](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L63) |
+| `Token.__iter__` | 函数 | [76](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L76) |
+| `Allele` | 类 | [82](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L82) |
+| `deduplicate_reads` | 函数 | [107](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L107) |
+| `edit_distance` | 函数 | [138](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L138) |
+| `similarity` | 函数 | [170](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L170) |
+| `AlignmentUnresolved` | 类 | [174](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L174) |
+| `align_to_seed` | 函数 | [179](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L179) |
+| `alignment_counts` | 函数 | [227](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L227) |
+| `make_consensus` | 函数 | [247](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L247) |
+| `_candidate_groups` | 函数 | [289](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L289) |
+| `split_stable_variants` | 函数 | [310](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L310) |
+| `generate_candidates` | 函数 | [356](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L356) |
+| `assign_reads` | 函数 | [392](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L392) |
+| `call_candidates` | 函数 | [434](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L434) |
+| `cluster_reads` | 函数 | [514](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L514) |
+| `canonical_motif` | 函数 | [519](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L519) |
+| `motif_orientation` | 函数 | [523](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L523) |
+| `discover_motifs` | 函数 | [532](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L532) |
+| `motif_dictionary` | 函数 | [575](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L575) |
+| `cigar_edit` | 函数 | [619](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L619) |
+| `decompose` | 函数 | [631](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L631) |
+| `decompose.convert` | 函数 | [672](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L672) |
+| `token_counts` | 函数 | [696](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L696) |
+| `build_graph` | 函数 | [704](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L704) |
+| `graph_evidence` | 函数 | [730](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L730) |
+| `dbg_evidence` | 函数 | [754](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrcore.py#L754) |
 
 ### vntrdbg.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `digest` | 函数 | [20](../scripts/vntrdbg.py#L20) |
-| `save_json` | 函数 | [24](../scripts/vntrdbg.py#L24) |
-| `tsv` | 函数 | [28](../scripts/vntrdbg.py#L28) |
-| `words` | 函数 | [41](../scripts/vntrdbg.py#L41) |
-| `raw_graph` | 函数 | [46](../scripts/vntrdbg.py#L46) |
-| `supported_records` | 函数 | [77](../scripts/vntrdbg.py#L77) |
-| `supported_records.enough` | 函数 | [83](../scripts/vntrdbg.py#L83) |
-| `compact_graph` | 函数 | [122](../scripts/vntrdbg.py#L122) |
-| `compact_graph.evidence` | 函数 | [196](../scripts/vntrdbg.py#L196) |
-| `write_gfa` | 函数 | [210](../scripts/vntrdbg.py#L210) |
-| `color` | 函数 | [223](../scripts/vntrdbg.py#L223) |
-| `topology` | 函数 | [230](../scripts/vntrdbg.py#L230) |
-| `paths_svg` | 函数 | [263](../scripts/vntrdbg.py#L263) |
-| `write_outputs` | 函数 | [316](../scripts/vntrdbg.py#L316) |
-| `metrics` | 函数 | [337](../scripts/vntrdbg.py#L337) |
-| `build_all` | 函数 | [369](../scripts/vntrdbg.py#L369) |
-| `main` | 函数 | [397](../scripts/vntrdbg.py#L397) |
+| `digest` | 函数 | [20](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L20) |
+| `save_json` | 函数 | [24](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L24) |
+| `tsv` | 函数 | [28](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L28) |
+| `words` | 函数 | [41](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L41) |
+| `raw_graph` | 函数 | [46](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L46) |
+| `supported_records` | 函数 | [77](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L77) |
+| `supported_records.enough` | 函数 | [83](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L83) |
+| `compact_graph` | 函数 | [122](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L122) |
+| `compact_graph.evidence` | 函数 | [196](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L196) |
+| `write_gfa` | 函数 | [210](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L210) |
+| `color` | 函数 | [223](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L223) |
+| `topology` | 函数 | [230](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L230) |
+| `paths_svg` | 函数 | [263](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L263) |
+| `write_outputs` | 函数 | [316](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L316) |
+| `metrics` | 函数 | [337](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L337) |
+| `build_all` | 函数 | [369](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L369) |
+| `main` | 函数 | [397](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg.py#L397) |
 
 ### vntrdbg_analysis.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `read_tsv` | 函数 | [25](../scripts/vntrdbg_analysis.py#L25) |
-| `write_tsv` | 函数 | [31](../scripts/vntrdbg_analysis.py#L31) |
-| `occurrences` | 函数 | [42](../scripts/vntrdbg_analysis.py#L42) |
-| `branch_queries` | 函数 | [55](../scripts/vntrdbg_analysis.py#L55) |
-| `anchored_interval` | 函数 | [133](../scripts/vntrdbg_analysis.py#L133) |
-| `define_events` | 函数 | [142](../scripts/vntrdbg_analysis.py#L142) |
-| `assess_observation` | 函数 | [185](../scripts/vntrdbg_analysis.py#L185) |
-| `joint_support` | 函数 | [218](../scripts/vntrdbg_analysis.py#L218) |
-| `template_for` | 函数 | [289](../scripts/vntrdbg_analysis.py#L289) |
-| `primitive_templates` | 函数 | [299](../scripts/vntrdbg_analysis.py#L299) |
-| `primitive_units` | 函数 | [308](../scripts/vntrdbg_analysis.py#L308) |
-| `terminal_evidence` | 函数 | [438](../scripts/vntrdbg_analysis.py#L438) |
-| `main` | 函数 | [491](../scripts/vntrdbg_analysis.py#L491) |
+| `read_tsv` | 函数 | [25](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L25) |
+| `write_tsv` | 函数 | [31](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L31) |
+| `occurrences` | 函数 | [42](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L42) |
+| `branch_queries` | 函数 | [55](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L55) |
+| `anchored_interval` | 函数 | [133](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L133) |
+| `define_events` | 函数 | [142](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L142) |
+| `assess_observation` | 函数 | [185](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L185) |
+| `joint_support` | 函数 | [218](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L218) |
+| `template_for` | 函数 | [289](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L289) |
+| `primitive_templates` | 函数 | [299](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L299) |
+| `primitive_units` | 函数 | [308](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L308) |
+| `terminal_evidence` | 函数 | [438](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L438) |
+| `main` | 函数 | [491](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_analysis.py#L491) |
 
 ### vntrdbg_inputs.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `rows` | 函数 | [20](../scripts/vntrdbg_inputs.py#L20) |
-| `intervals` | 函数 | [26](../scripts/vntrdbg_inputs.py#L26) |
-| `prepare` | 函数 | [59](../scripts/vntrdbg_inputs.py#L59) |
+| `rows` | 函数 | [20](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_inputs.py#L20) |
+| `intervals` | 函数 | [26](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_inputs.py#L26) |
+| `prepare` | 函数 | [59](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_inputs.py#L59) |
 
 ### vntrdbg_report.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `preview` | 函数 | [14](../scripts/vntrdbg_report.py#L14) |
-| `main` | 函数 | [25](../scripts/vntrdbg_report.py#L25) |
+| `preview` | 函数 | [14](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_report.py#L14) |
+| `main` | 函数 | [25](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrdbg_report.py#L25) |
 
 ### vntrgraph.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `Locus` | 类 | [33](../scripts/vntrgraph.py#L33) |
-| `IndexedFastaReference` | 类 | [44](../scripts/vntrgraph.py#L44) |
-| `IndexedFastaReference.__init__` | 函数 | [47](../scripts/vntrgraph.py#L47) |
-| `IndexedFastaReference.__enter__` | 函数 | [58](../scripts/vntrgraph.py#L58) |
-| `IndexedFastaReference.__exit__` | 函数 | [61](../scripts/vntrgraph.py#L61) |
-| `IndexedFastaReference.contig_length` | 函数 | [64](../scripts/vntrgraph.py#L64) |
-| `IndexedFastaReference.fetch` | 函数 | [67](../scripts/vntrgraph.py#L67) |
-| `read_catalog` | 函数 | [87](../scripts/vntrgraph.py#L87) |
-| `discover_bams` | 函数 | [122](../scripts/vntrgraph.py#L122) |
-| `reference_to_query` | 函数 | [139](../scripts/vntrgraph.py#L139) |
-| `flank_hit` | 函数 | [158](../scripts/vntrgraph.py#L158) |
-| `extract_sam_records` | 函数 | [207](../scripts/vntrgraph.py#L207) |
-| `write_tsv` | 函数 | [218](../scripts/vntrgraph.py#L218) |
-| `source_hashes` | 函数 | [226](../scripts/vntrgraph.py#L226) |
-| `write_gfa` | 函数 | [231](../scripts/vntrgraph.py#L231) |
-| `compress_tokens` | 函数 | [249](../scripts/vntrgraph.py#L249) |
-| `write_svg` | 函数 | [262](../scripts/vntrgraph.py#L262) |
-| `process_locus` | 函数 | [316](../scripts/vntrgraph.py#L316) |
-| `main` | 函数 | [447](../scripts/vntrgraph.py#L447) |
+| `Locus` | 类 | [33](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L33) |
+| `IndexedFastaReference` | 类 | [44](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L44) |
+| `IndexedFastaReference.__init__` | 函数 | [47](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L47) |
+| `IndexedFastaReference.__enter__` | 函数 | [58](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L58) |
+| `IndexedFastaReference.__exit__` | 函数 | [61](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L61) |
+| `IndexedFastaReference.contig_length` | 函数 | [64](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L64) |
+| `IndexedFastaReference.fetch` | 函数 | [67](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L67) |
+| `read_catalog` | 函数 | [87](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L87) |
+| `discover_bams` | 函数 | [122](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L122) |
+| `reference_to_query` | 函数 | [139](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L139) |
+| `flank_hit` | 函数 | [158](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L158) |
+| `extract_sam_records` | 函数 | [207](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L207) |
+| `write_tsv` | 函数 | [218](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L218) |
+| `source_hashes` | 函数 | [226](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L226) |
+| `write_gfa` | 函数 | [231](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L231) |
+| `compress_tokens` | 函数 | [249](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L249) |
+| `write_svg` | 函数 | [262](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L262) |
+| `process_locus` | 函数 | [316](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L316) |
+| `main` | 函数 | [447](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrgraph.py#L447) |
 
 ### vntrmotifs.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `primitive_unit` | 函数 | [12](../scripts/vntrmotifs.py#L12) |
-| `forms` | 函数 | [21](../scripts/vntrmotifs.py#L21) |
-| `canonical` | 函数 | [26](../scripts/vntrmotifs.py#L26) |
-| `definition` | 函数 | [30](../scripts/vntrmotifs.py#L30) |
-| `exact_runs` | 函数 | [38](../scripts/vntrmotifs.py#L38) |
-| `exact_occurrences` | 函数 | [63](../scripts/vntrmotifs.py#L63) |
-| `context_support` | 函数 | [74](../scripts/vntrmotifs.py#L74) |
-| `PathState` | 类 | [102](../scripts/vntrmotifs.py#L102) |
-| `TwoPaths` | 类 | [109](../scripts/vntrmotifs.py#L109) |
-| `TwoPaths.__init__` | 函数 | [111](../scripts/vntrmotifs.py#L111) |
-| `TwoPaths.offer` | 函数 | [117](../scripts/vntrmotifs.py#L117) |
-| `TwoPaths.trace` | 函数 | [128](../scripts/vntrmotifs.py#L128) |
-| `TwoPaths.audit` | 函数 | [139](../scripts/vntrmotifs.py#L139) |
-| `base_metrics` | 函数 | [150](../scripts/vntrmotifs.py#L150) |
-| `compound_annotations` | 函数 | [170](../scripts/vntrmotifs.py#L170) |
-| `observed_compounds` | 函数 | [198](../scripts/vntrmotifs.py#L198) |
+| `primitive_unit` | 函数 | [12](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L12) |
+| `forms` | 函数 | [21](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L21) |
+| `canonical` | 函数 | [26](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L26) |
+| `definition` | 函数 | [30](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L30) |
+| `exact_runs` | 函数 | [38](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L38) |
+| `exact_occurrences` | 函数 | [63](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L63) |
+| `context_support` | 函数 | [74](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L74) |
+| `PathState` | 类 | [102](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L102) |
+| `TwoPaths` | 类 | [109](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L109) |
+| `TwoPaths.__init__` | 函数 | [111](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L111) |
+| `TwoPaths.offer` | 函数 | [117](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L117) |
+| `TwoPaths.trace` | 函数 | [128](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L128) |
+| `TwoPaths.audit` | 函数 | [139](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L139) |
+| `base_metrics` | 函数 | [150](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L150) |
+| `compound_annotations` | 函数 | [170](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L170) |
+| `observed_compounds` | 函数 | [198](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrmotifs.py#L198) |
 
 ### vntrreads.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `cigar_interval` | 函数 | [37](../scripts/vntrreads.py#L37) |
-| `near_anchor` | 函数 | [80](../scripts/vntrreads.py#L80) |
-| `extract_record` | 函数 | [95](../scripts/vntrreads.py#L95) |
-| `read_bam` | 函数 | [145](../scripts/vntrreads.py#L145) |
-| `collect_reads` | 函数 | [202](../scripts/vntrreads.py#L202) |
-| `annotation_results` | 函数 | [213](../scripts/vntrreads.py#L213) |
-| `motif_templates` | 函数 | [223](../scripts/vntrreads.py#L223) |
-| `annotate` | 函数 | [248](../scripts/vntrreads.py#L248) |
-| `annotate.update` | 函数 | [276](../scripts/vntrreads.py#L276) |
-| `write_table` | 函数 | [325](../scripts/vntrreads.py#L325) |
-| `svg_read` | 函数 | [330](../scripts/vntrreads.py#L330) |
-| `svg_read.text` | 函数 | [334](../scripts/vntrreads.py#L334) |
-| `write_outputs` | 函数 | [409](../scripts/vntrreads.py#L409) |
-| `run_locus` | 函数 | [471](../scripts/vntrreads.py#L471) |
-| `main` | 函数 | [509](../scripts/vntrreads.py#L509) |
+| `cigar_interval` | 函数 | [37](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L37) |
+| `near_anchor` | 函数 | [80](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L80) |
+| `extract_record` | 函数 | [95](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L95) |
+| `read_bam` | 函数 | [145](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L145) |
+| `collect_reads` | 函数 | [202](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L202) |
+| `annotation_results` | 函数 | [213](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L213) |
+| `motif_templates` | 函数 | [223](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L223) |
+| `annotate` | 函数 | [248](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L248) |
+| `annotate.update` | 函数 | [276](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L276) |
+| `write_table` | 函数 | [325](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L325) |
+| `svg_read` | 函数 | [330](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L330) |
+| `svg_read.text` | 函数 | [334](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L334) |
+| `write_outputs` | 函数 | [409](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L409) |
+| `run_locus` | 函数 | [471](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L471) |
+| `main` | 函数 | [509](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrreads.py#L509) |
 
 ### vntrstr.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `parse_structure` | 函数 | [21](../scripts/vntrstr.py#L21) |
-| `validate_config` | 函数 | [43](../scripts/vntrstr.py#L43) |
-| `reconstruct` | 函数 | [53](../scripts/vntrstr.py#L53) |
-| `format_blocks` | 函数 | [59](../scripts/vntrstr.py#L59) |
-| `reverse_blocks` | 函数 | [65](../scripts/vntrstr.py#L65) |
-| `reverse_blocks.rc` | 函数 | [67](../scripts/vntrstr.py#L67) |
-| `_blocks` | 函数 | [80](../scripts/vntrstr.py#L80) |
-| `annotate` | 函数 | [94](../scripts/vntrstr.py#L94) |
-| `path_record` | 函数 | [148](../scripts/vntrstr.py#L148) |
-| `annotate_rows` | 函数 | [153](../scripts/vntrstr.py#L153) |
-| `svg_blocks` | 函数 | [168](../scripts/vntrstr.py#L168) |
-| `write_paths_svg` | 函数 | [194](../scripts/vntrstr.py#L194) |
-| `write_outputs` | 函数 | [226](../scripts/vntrstr.py#L226) |
+| `parse_structure` | 函数 | [21](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L21) |
+| `validate_config` | 函数 | [43](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L43) |
+| `reconstruct` | 函数 | [53](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L53) |
+| `format_blocks` | 函数 | [59](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L59) |
+| `reverse_blocks` | 函数 | [65](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L65) |
+| `reverse_blocks.rc` | 函数 | [67](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L67) |
+| `_blocks` | 函数 | [80](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L80) |
+| `annotate` | 函数 | [94](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L94) |
+| `path_record` | 函数 | [148](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L148) |
+| `annotate_rows` | 函数 | [153](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L153) |
+| `svg_blocks` | 函数 | [168](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L168) |
+| `write_paths_svg` | 函数 | [194](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L194) |
+| `write_outputs` | 函数 | [226](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstr.py#L226) |
 
 ### vntrstrgraph.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `compact_walk` | 函数 | [21](../scripts/vntrstrgraph.py#L21) |
-| `_token` | 函数 | [28](../scripts/vntrstrgraph.py#L28) |
-| `build_graph` | 函数 | [34](../scripts/vntrstrgraph.py#L34) |
-| `write_gfa` | 函数 | [140](../scripts/vntrstrgraph.py#L140) |
-| `_lines` | 函数 | [156](../scripts/vntrstrgraph.py#L156) |
-| `write_topology` | 函数 | [161](../scripts/vntrstrgraph.py#L161) |
-| `write_paths_svg` | 函数 | [179](../scripts/vntrstrgraph.py#L179) |
-| `write_outputs` | 函数 | [236](../scripts/vntrstrgraph.py#L236) |
+| `compact_walk` | 函数 | [21](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L21) |
+| `_token` | 函数 | [28](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L28) |
+| `build_graph` | 函数 | [34](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L34) |
+| `write_gfa` | 函数 | [140](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L140) |
+| `_lines` | 函数 | [156](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L156) |
+| `write_topology` | 函数 | [161](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L161) |
+| `write_paths_svg` | 函数 | [179](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L179) |
+| `write_outputs` | 函数 | [236](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstrgraph.py#L236) |
 
 ### vntrstructure.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `support_key` | 函数 | [30](../scripts/vntrstructure.py#L30) |
-| `seed_dictionary` | 函数 | [36](../scripts/vntrstructure.py#L36) |
-| `normalize_dictionary` | 函数 | [49](../scripts/vntrstructure.py#L49) |
-| `add_reference_units` | 函数 | [70](../scripts/vntrstructure.py#L70) |
-| `exact_tandem_units` | 函数 | [106](../scripts/vntrstructure.py#L106) |
-| `segment` | 函数 | [112](../scripts/vntrstructure.py#L112) |
-| `segment.update` | 函数 | [139](../scripts/vntrstructure.py#L139) |
-| `segment.convert` | 函数 | [161](../scripts/vntrstructure.py#L161) |
-| `segment_details` | 函数 | [187](../scripts/vntrstructure.py#L187) |
-| `annotate_rows` | 函数 | [192](../scripts/vntrstructure.py#L192) |
-| `learn_variants` | 函数 | [201](../scripts/vntrstructure.py#L201) |
-| `run_blocks` | 函数 | [261](../scripts/vntrstructure.py#L261) |
-| `compound_blocks` | 函数 | [274](../scripts/vntrstructure.py#L274) |
-| `summarize` | 函数 | [280](../scripts/vntrstructure.py#L280) |
-| `summarize.node` | 函数 | [283](../scripts/vntrstructure.py#L283) |
-| `summarize.add` | 函数 | [286](../scripts/vntrstructure.py#L286) |
-| `summarize.edge` | 函数 | [289](../scripts/vntrstructure.py#L289) |
-| `summarize.finish` | 函数 | [326](../scripts/vntrstructure.py#L326) |
-| `color` | 函数 | [337](../scripts/vntrstructure.py#L337) |
-| `graph_svg` | 函数 | [348](../scripts/vntrstructure.py#L348) |
-| `rows_svg` | 函数 | [372](../scripts/vntrstructure.py#L372) |
-| `write_gfa` | 函数 | [398](../scripts/vntrstructure.py#L398) |
-| `emit` | 函数 | [413](../scripts/vntrstructure.py#L413) |
-| `main` | 函数 | [504](../scripts/vntrstructure.py#L504) |
+| `support_key` | 函数 | [30](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L30) |
+| `seed_dictionary` | 函数 | [36](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L36) |
+| `normalize_dictionary` | 函数 | [49](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L49) |
+| `add_reference_units` | 函数 | [70](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L70) |
+| `exact_tandem_units` | 函数 | [106](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L106) |
+| `segment` | 函数 | [112](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L112) |
+| `segment.update` | 函数 | [139](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L139) |
+| `segment.convert` | 函数 | [161](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L161) |
+| `segment_details` | 函数 | [187](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L187) |
+| `annotate_rows` | 函数 | [192](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L192) |
+| `learn_variants` | 函数 | [201](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L201) |
+| `run_blocks` | 函数 | [261](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L261) |
+| `compound_blocks` | 函数 | [274](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L274) |
+| `summarize` | 函数 | [280](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L280) |
+| `summarize.node` | 函数 | [283](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L283) |
+| `summarize.add` | 函数 | [286](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L286) |
+| `summarize.edge` | 函数 | [289](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L289) |
+| `summarize.finish` | 函数 | [326](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L326) |
+| `color` | 函数 | [337](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L337) |
+| `graph_svg` | 函数 | [348](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L348) |
+| `rows_svg` | 函数 | [372](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L372) |
+| `write_gfa` | 函数 | [398](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L398) |
+| `emit` | 函数 | [413](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L413) |
+| `main` | 函数 | [504](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrstructure.py#L504) |
 
 ### vntrsummary.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `identity` | 函数 | [17](../scripts/vntrsummary.py#L17) |
-| `blocks` | 函数 | [22](../scripts/vntrsummary.py#L22) |
-| `structure_text` | 函数 | [35](../scripts/vntrsummary.py#L35) |
-| `reference_report` | 函数 | [41](../scripts/vntrsummary.py#L41) |
-| `is_primary` | 函数 | [65](../scripts/vntrsummary.py#L65) |
-| `strong_boundary` | 函数 | [70](../scripts/vntrsummary.py#L70) |
-| `local_candidates` | 函数 | [75](../scripts/vntrsummary.py#L75) |
-| `structural_summary` | 函数 | [110](../scripts/vntrsummary.py#L110) |
-| `structural_summary.counts` | 函数 | [166](../scripts/vntrsummary.py#L166) |
-| `summary_svg` | 函数 | [213](../scripts/vntrsummary.py#L213) |
+| `identity` | 函数 | [17](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L17) |
+| `blocks` | 函数 | [22](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L22) |
+| `structure_text` | 函数 | [35](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L35) |
+| `reference_report` | 函数 | [41](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L41) |
+| `is_primary` | 函数 | [65](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L65) |
+| `strong_boundary` | 函数 | [70](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L70) |
+| `local_candidates` | 函数 | [75](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L75) |
+| `structural_summary` | 函数 | [110](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L110) |
+| `structural_summary.counts` | 函数 | [166](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L166) |
+| `summary_svg` | 函数 | [213](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrsummary.py#L213) |
 
 ### vntrterminal.py
 
 | 定义 | 类型 | 注释后行号 |
 |---|---|---:|
-| `validate_terminals` | 函数 | [18](../scripts/vntrterminal.py#L18) |
+| `validate_terminals` | 函数 | [18](https://github.com/devildoctor/experiment-trs-map/blob/9c5739f18adf31add56b9fb36752a5eeb527ad89/scripts/vntrterminal.py#L18) |

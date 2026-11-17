@@ -2,7 +2,7 @@
 
 **2026-11-17：已移除 de Bruijn 图功能。** 不再提供 `--dbg-view`、多 k 图与联合分支分析入口，主点图不再输出 `*.dbg.json`、`dbg_k`、`graph_support` 或 `low_local_graph_support`。现有分析结果未删除。纯序列单元注释保留于 `scripts/vntrunits.py`，终端证据库保留于 `scripts/vntrterminal.py`。下方历史分支及旧文档记录仅描述对应历史版本。
 
-**当前点位图侧翼流程：B2（2026-11-09）。** 固定 catalog 核心和左右 250 bp 模板，自动应用于点位图、结构分解及 all-read 入口。B0/B1/W1–W8 和 100 bp 诊断已移除，历史结果保留。完整流程见 [B2 使用与核对规则](docs/flank-b2.md)。当前实现分支为 `feat/b2-only-20261109`；下方早期分支说明为历史记录。
+**当前点位图侧翼流程：B2（2026-11-09）。** 固定 catalog 核心和左右 250 bp 模板，自动应用于点位图、结构分解及 all-read 入口。B0/B1/W1–W8 和 100 bp 诊断已移除，历史结果保留。完整流程见 [B2 使用与核对规则](docs/flank-b2.md)。B2 最初实现于历史分支 `feat/b2-only-20261109`；下方早期分支说明为历史记录。
 
 面向长读段 VNTR / STR 的可审计点位图分析工具。输入按位点整理的 BAM、匹配参考及位点目录，输出明确保存的序列路径、分子证据、重复单元注释和 GFA/SVG。
 
@@ -20,7 +20,7 @@
 
 ## Versions and branches
 
-**当前分支：`feat/path-structure-graph-20261105`** — 基于冻结划分分支新增序列结构 GFA 与静态图；沿用此前的歧义标记、目录校验、空证据导出、分子命名空间与阈值修复。终端模式开启后CN仍保留NA。
+**当前分支：`feat/efficient-motif-family-3pct-20261111`**。当前功能和删除后的兼容性变化见 [使用与核验说明](docs/debruijn-removal-audit.md)。下表是历史开发分支。
 
 | 分支 | 用途 |
 |---|---|
@@ -37,7 +37,7 @@
 需要 Python 3.11+、samtools，以及图布局使用的 Graphviz (`dot` / `neato`)。锚定模块依赖固定版本的 edlib 和 pyahocorasick。
 
 ```bash
-git clone --branch fix/vntr-review-20261029 https://github.com/devildoctor/experiment-trs-map.git vntr-point-graph
+git clone --branch feat/efficient-motif-family-3pct-20261111 https://github.com/devildoctor/experiment-trs-map.git vntr-point-graph
 cd vntr-point-graph
 conda create -n vntr-point-graph -c conda-forge -c bioconda python=3.11 samtools graphviz pip
 conda activate vntr-point-graph
@@ -121,8 +121,8 @@ python tests/integration_synthetic.py
 
 ## Documentation
 
-- [本次修复与验证](docs/CODE_FIXES_20261029.zh-CN.md)
-- [详细中文代码解读](docs/CODE_WALKTHROUGH.zh-CN.md)、[原始检查记录](docs/CODE_REVIEW_20261029.zh-CN.md)
+- [2026-10-29 历史修复与验证](docs/CODE_FIXES_20261029.zh-CN.md)
+- [历史中文代码解读](docs/CODE_WALKTHROUGH.zh-CN.md)、[原始检查记录](docs/CODE_REVIEW_20261029.zh-CN.md)
 
 - [完整方法与历史说明](METHODS.md)
 - [锚定与来源规则](ANCHOR_UPDATE.md)
