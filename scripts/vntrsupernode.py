@@ -45,7 +45,10 @@ def select_blocks(tokens, interruptions, width_limit):
         kind = ('opaque' if tokens[i]['status'] != 'unit' or tokens[i].get('structure_assessment') != CERTAIN
                 else 'unit' if count == 1 else 'run' if width == 1 else 'tandem_module')
         blocks.append(dict(start=i,end=end,pattern=tuple(keys[i:i+width]),count=count,
-                           kind=kind,barrier=barrier[i]))
+                           kind=kind,barrier=barrier[i],
+                           assessed=(tokens[i].get('structure_assessment')==CERTAIN and
+                                     tokens[i].get('boundary_assessment')==CERTAIN),
+                           literal_anchor=tokens[i]['exact_bases'] if tokens[i]['status']!='unit' else None))
         i = end
     return blocks
 
@@ -75,9 +78,12 @@ def align_regions(blocks, ref, path, outer_certain):
     # Align protected landmarks first; repeated, ambiguously placed barriers
     # constrain the search only where correspondence is unique. A novel
     # insertion is shareable only at a unique gap with the same ordered context.
-    key = lambda b:(b['pattern'], b['barrier'], b['kind']=='opaque')
+    def keys(bs,owner):
+        return [(b['pattern'],b['barrier'],b['literal_anchor']) if b['assessed']
+                else ('unassessed_or_ambiguous',owner,i) for i,b in enumerate(bs)]
+    qkeys,rkeys=keys(blocks,path),keys(ref,'P0001')
     def landmarks(bs):
-        return [i for i,b in enumerate(bs) if b['barrier']]
+        return [i for i,b in enumerate(bs) if b['barrier'] and b['assessed']]
     qmarks,rmarks = landmarks(blocks),landmarks(ref)
     local = [('local',path,i) for i in range(len(blocks))]
     if not outer_certain:
@@ -86,7 +92,7 @@ def align_regions(blocks, ref, path, outer_certain):
     if path=='P0001':
         return [('ref',i) for i in range(len(blocks))], [[('ref',i)] for i in range(len(blocks))]
     matched = {-1:-1,len(blocks):len(ref)}
-    barrier_options = partner_options([key(blocks[i]) for i in qmarks],[key(ref[i]) for i in rmarks])
+    barrier_options = partner_options([qkeys[i] for i in qmarks],[rkeys[i] for i in rmarks])
     for i,opts in zip(qmarks,barrier_options):
         options[i] = [(k,rmarks[j] if k=='ref' or j<len(rmarks) else len(ref)) for k,j in opts]
         if len(opts)==1 and opts[0][0]=='ref':
@@ -96,8 +102,8 @@ def align_regions(blocks, ref, path, outer_certain):
     anchors = sorted(matched)
     for a,b in zip(anchors,anchors[1:]):
         lo,hi = matched[a]+1,matched[b]
-        query = [key(v) for v in blocks[a+1:b]]
-        opts = partner_options(query,[key(v) for v in ref[lo:hi]])
+        query = qkeys[a+1:b]
+        opts = partner_options(query,rkeys[lo:hi])
         for offset,op in enumerate(opts):
             i = a+1+offset
             options[i] = [(k,j+lo) for k,j in op]

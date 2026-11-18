@@ -39,6 +39,14 @@ class SupernodeTests(unittest.TestCase):
             ts=units('AAAAA');ts[2].update(change)
             self.assertEqual([(b['start'],b['end']) for b in select_blocks(ts,[],12)],[(0,2),(2,3),(3,5)])
 
+    def test_ambiguous_chosen_type_is_never_a_shared_anchor(self):
+        ref=units('AXB');query=units('AXB')
+        for ts in (ref,query):ts[1]['structure_assessment']='ambiguous'
+        bs=[select_blocks(ts,[],12) for ts in (ref,query)]
+        regions,opts=align_regions(bs[1],bs[0],'P0002',True)
+        self.assertNotIn(('ref',1),opts[1])
+        self.assertEqual((regions[0],regions[2]),(('ref',0),('ref',2)))
+
     def test_optimal_projections_with_seven_or_eight_units(self):
         # Six A units and either two C units or one CC. Paths tie exactly.
         inf=float('-inf')
