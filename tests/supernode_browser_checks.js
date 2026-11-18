@@ -1,46 +1,71 @@
 (() => {
-  function check(ok,msg){if(!ok)throw Error(msg)}
-  const set=(id,value)=>{el(id).value=value;el(id).dispatchEvent(new Event('change'))};
-  const recorded=new Map(Object.values(paths).flat().map(v=>[v.visit_id,v]));
-  const sample=el('sample').options[1]?.value;
-  if(sample){set('sample',sample);check(visiblePaths().every(p=>data.samples[p][sample]?.length),'sample filter');set('sample','')}
-  const module=Array.from(recorded.values()).find(v=>nodes[v.supernode_id].kind==='tandem_module' && v.repeat_count>=2);
-  check(module,'expected a registered tandem module');
-  set('pathA',module.path_id);
-  const other=Object.keys(paths).find(p=>p!==module.path_id);
-  set('pathB',other);el('only').checked=true;el('only').dispatchEvent(new Event('change'));
-  function checkHighlight(p,cls){
-    const vs=paths[p],ids=vs.map(v=>v.supernode_id),edges=ids.slice(1).map((n,i)=>'e:'+ids[i]+'>'+n);
-    check(cy.nodes('.'+cls).length===new Set(ids).size && ids.every(id=>cy.getElementById(id).hasClass(cls)),'node walk '+p);
-    check(cy.edges('.'+cls).length===new Set(edges).size && edges.every(id=>cy.getElementById(id).hasClass(cls)),'edge walk '+p);
+  function check(value,message){if(!value)throw Error(message)}
+  const change=(id,value)=>{el(id).value=value;el(id).dispatchEvent(new Event('change'))};
+  const options=id=>Array.from(el(id).options,o=>o.value);
+  const real=!!paths.P0188, sample=Object.keys(data.samples.P0002)[0];
+  change('view','compare');
+  check(el('legend').textContent.includes('请选择'),'missing path guidance');
+  change('sampleA',real?'LCL5':sample);change('pathA','P0002');
+  change('sampleB',real?'LCL6':sample);change('pathB','P0002');
+  check(el('meta').textContent.startsWith('1 条登记路径'),'same registered path');
+  const sameSummary=el('meta').textContent;
+  if(real)check(sameSummary.includes('13 个独立分子') && el('statsA').textContent.startsWith('6 个') &&
+    el('statsB').textContent.startsWith('7 个'),'sample-specific molecule counts');
+  function ordered(track,p){
+    const row=cy.nodes('.'+track.toLowerCase()).sort((a,b)=>a.position('x')-b.position('x'));
+    check(row.length===paths[p].length && row.every((n,i)=>n.data('visit')===paths[p][i].visit_id),'ordered visits '+track);
+    check(row.every((n,i)=>!i || n.position('x')>row[i-1].position('x')),'monotone layout');
+    const edges=cy.edges('.'+track.toLowerCase());
+    check(edges.length===row.length-1 && row.slice(1).every((n,i)=>edges.some(e=>e.source().id()===row[i].id() && e.target().id()===n.id())),'registered edges');
+    return row;
   }
-  checkHighlight(module.path_id,'a');checkHighlight(other,'b');
-  cy.getElementById(module.supernode_id).emit('tap');set('visit',module.visit_id);
-  const before=cy.zoom(),support=el('info').textContent,meta=el('meta').textContent;
-  const unrelated=cy.nodes().filter(n=>n.id()!==module.supernode_id)[0];
-  const pos=unrelated?{...unrelated.position()}:null;
+  ordered('A','P0002');ordered('B','P0002');
+  check(cy.edges('.correspondence').length===paths.P0002.length,'same-source connectors');
+  const oldB=options('pathB').join(), chosenB=el('pathB').value;
+  if(real){
+    change('sampleA','LCL8');
+    check(!el('pathA').value && options('pathB').join()===oldB && el('pathB').value===chosenB,'independent controls');
+  }
+  change('pathA','P0001');check(el('statsA').textContent.startsWith('0 个') && el('statsA').textContent.includes('预算 0 bp'),'reference scope');
+  if(real){
+    check(!cy.edges('.correspondence').length && el('legend').textContent.includes('尚未确定'),'uncertain position');
+    change('sampleB','LCL5');change('pathB','P0188');
+    const links=cy.edges('.correspondence');
+    check(links.length===4 && links.every(e=>e.source().position('x')===e.target().position('x')),'real anchored columns');
+    for(const [side,count] of [['A',2],['B',4]]){
+      const row=ordered(side,side==='A'?'P0001':'P0188');
+      check(row[2].data('label').includes('×'+count),'exact visit count');
+    }
+  }
+  const moduleVisit=paths.P0001.find(v=>nodes[v.supernode_id].kind==='tandem_module');
+  const visitNode=(t,v)=>cy.getElementById(JSON.stringify([t,v.path_id,v.visit_id]));
+  visitNode('A',moduleVisit).emit('tap');
+  check(el('name').textContent.includes('A 行') && el('name').textContent.includes(moduleVisit.visit_id),'visit detail target');
+  check(el('details').querySelectorAll('li').length===moduleVisit.ordered_occurrence_ids.length,'ordered units');
+  if(!real)check(moduleVisit.repeat_count===3 && moduleVisit.ordered_occurrence_ids.length===6,'AB cubed');
+  const auditUnits=(v,mode)=>Array.from(el('details').querySelectorAll('li'),(li,i)=>{
+    const text=li.textContent;
+    return text.includes(v.ordered_occurrence_ids[i]+' ') && text.includes(data.variants[v[mode+'_variant_ids'][i]]+' · S'+v[mode+'_gfa_walk'][i]);
+  }).every(Boolean);
+  check(auditUnits(moduleVisit,'original'),'original walk detail');
+  const snapshot=()=>JSON.stringify([cy.nodes().map(n=>[n.id(),n.position().x,n.position().y]),cy.pan(),cy.zoom(),selections(),
+    el('meta').textContent,el('statsA').textContent,el('statsB').textContent]);
+  const before=snapshot();change('mode','represented');
+  check(before===snapshot() && auditUnits(moduleVisit,'represented'),'stable viewport, counts and dual walks');
+  let lossVisit=null;
+  if(real){
+    change('sampleB','LCL7');change('pathB','P0007');
+    const v=paths.P0007.find(v=>v.visit_id==='P0007:v3');lossVisit=v.visit_id;visitNode('B',v).emit('tap');
+    check(el('details').textContent.includes('G → A') && el('details').textContent.includes('P0097:u6') &&
+      el('statsB').textContent.includes('展示整串未见于原始 OBS'),'donor provenance and whole string status');
+    check(el('details').querySelector('details pre').textContent.includes('LCL7'),'molecule origin');
+  }
+  change('view','overview');
+  const sn=moduleVisit.supernode_id;cy.getElementById(sn).emit('tap');change('visit',moduleVisit.visit_id);
+  el('toggle').click();check(cy.nodes().some(n=>n.data('visit')===moduleVisit.visit_id),'overview inline expansion');
   el('toggle').click();
-  const units=cy.nodes().filter(n=>n.data('visit')===module.visit_id);
-  check(units.length===module.ordered_occurrence_ids.length,'expanded occurrences');
-  check(units.every((n,i)=>n.data('source_node_id')===module.original_gfa_walk[i]),'ordered original walk');
-  check(el('details').querySelectorAll('li').length===units.length,'unit details');
-  check(el('info').textContent===support && el('meta').textContent===meta && cy.zoom()===before,'stable support and zoom');
-  if(pos)check(unrelated.position().x===pos.x && unrelated.position().y===pos.y,'stable unrelated position');
-  set('mode','represented');
-  check(units.every((n,i)=>n.data('source_node_id')===module.represented_gfa_walk[i]),'represented walk');
-  el('toggle').click();checkHighlight(module.path_id,'a');
-  const loss=Array.from(recorded.values()).find(v=>v.loss_event_ids.length);
-  if(loss){
-    set('pathA',loss.path_id);detail(loss.supernode_id,loss.visit_id);el('toggle').click();
-    check(el('details').textContent.includes(data.losses[loss.loss_event_ids[0]].representative_occurrence),'donor details');
-    const changed=cy.nodes().filter(n=>n.data('visit')===loss.visit_id && n.data('flag')==='loss');
-    check(changed.length>0 && changed.every(n=>n.data('label')===data.variants[loss.represented_variant_ids[loss.ordered_occurrence_ids.indexOf(n.id().slice(2))]]),'local substitutions');
-  }
-  const countSet=Object.values(nodes).find(n=>JSON.stringify(n.observed_repeat_counts)==='[3,5]');
-  if(countSet)check(label(countSet).includes('{3,5}'),'literal observed count set');
-  check(!performance.getEntriesByType('resource').some(r=>/^https?:/.test(r.name)),'offline dependencies');
-  return {cytoscape:cytoscape.version,paths:Object.keys(paths).length,sample,compared:[module.path_id,other],
-          expanded_visit:module.visit_id,pattern:pattern(nodes[module.supernode_id]),count:module.repeat_count,
-          expanded_units:units.length,loss_visit:loss?.visit_id||null,checked_counts_3_5:!!countSet,
-          offline:true,path_highlight:true,stable_support_and_viewport:true};
+  check(!performance.getEntriesByType('resource').some(r=>/^https?:/.test(r.name)),'offline');
+  return {paths:Object.keys(paths).length,cytoscape:cytoscape.version,same_path:sameSummary,
+    module_visit:moduleVisit.visit_id,ordered_occurrences:moduleVisit.ordered_occurrence_ids.length,
+    loss_visit:lossVisit,dual_walks:true,stable_viewport:true,overview_expand_collapse:true,offline:true};
 })()

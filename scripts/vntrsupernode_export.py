@@ -273,10 +273,10 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
     dump(out/'summary.json',summary)
     if render:
         from vntrsupernode_viewer import write_viewer
-        write_viewer(out,display,visits,variants,records,events,policy)
+        write_viewer(out,display,visits,variants,records,events,policy,rows)
     files={f.name:digest(f) for f in sorted(out.iterdir()) if f.is_file() and f.name not in ('provenance.json','validation.json')}
     commit=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
-    sources=[*ROOT.glob('scripts/vntr*.py'),ROOT/'scripts/run_efficient_family.py',ROOT/'scripts/supernodes.html',
+    sources=[*ROOT.glob('scripts/vntr*.py'),ROOT/'scripts/run_efficient_family.py',ROOT/'scripts/supernodes.html',ROOT/'scripts/supernode_compare.js',
              ROOT/'third_party/cytoscape-3.30.4/cytoscape.min.js']
     provenance=dict(locus=locus.name,decoder='hmm_assessed',dictionary='full',dictionary_q=None,policy=policy,
         model_sha256=mhash,policy_sha256=digest(policy_path),boundary_model_hashes=sorted({o['boundary_model_sha256']
