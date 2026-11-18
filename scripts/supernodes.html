@@ -50,7 +50,6 @@ function selectPaths(track){
 }
 tracks.forEach(selectPaths);
 el('title').textContent=data.graph.locus+' 重复结构';
-const visiblePaths=()=>Object.keys(paths).filter(p=>supported(p,el('sample').value));
 const pattern=n=>n.ordered_pattern.map(k=>k[0]).join('·');
 
 function stateLabel(n,v){
@@ -76,7 +75,11 @@ for(const [sn,pos] of positions){pos.sort((a,b)=>a-b);anchors.set(sn,pos[Math.fl
 function updateRange(){
   const keep=new Set(Array.from(el('range').selectedOptions,o=>o.value));
   el('range').replaceChildren();
-  for(const p of visiblePaths()){option(el('range'),p,p);el('range').lastChild.selected=keep.has(p)}
+  for(const p of Object.keys(paths)){
+    const ok=supported(p,el('sample').value);
+    option(el('range'),p,p+(ok?'':' · 当前样本无支持'));
+    const entry=el('range').lastChild;entry.disabled=!ok;entry.selected=keep.has(p);
+  }
 }
 updateRange();
 const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},minZoom:.009,maxZoom:5,
@@ -93,7 +96,7 @@ const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},mi
     {selector:'node',style:{'background-color':'#ecf1f0','color':'#193640','border-color':'#8ba09f','border-width':1,'text-valign':'center','text-margin-y':0,'text-max-width':170,'text-wrap':'ellipsis','width':178,'height':46}},
     {selector:'node.pair',style:{'text-wrap':'wrap','height':58}},
     {selector:'node[view_kind="copy"]',style:{'width':134,'height':58,'font-size':11,'text-max-width':130,'text-wrap':'wrap'}},
-    {selector:'node[view_kind="state"]',style:{'width':202,'height':60}},
+    {selector:'node[view_kind="state"]',style:{'width':202,'height':'data(state_height)'}},
     {selector:':parent',style:{'shape':'round-rectangle','padding':'13px','background-color':'#e3eeed','background-opacity':0.45,'text-valign':'top','font-weight':'bold','text-background-opacity':1,'text-background-color':'#f8faf9'}},
     {selector:'node[flag="loss"]',style:{'border-width':3,'border-color':'#bf633d'}},
     {selector:'edge.trace,edge.a,edge.b',style:{'line-color':'data(color)','target-arrow-color':'data(color)','width':2.2,'opacity':0.82}},
@@ -115,7 +118,8 @@ function layoutOverview(items,graph){
       for(const sid of block.state_ids){
         const state=graph.states.get(sid);
         if(!expandedStates.has(sid)){
-          leaves.push([sid,0,height+30]);height+=90;
+          const h=items.get(sid).data.state_height;
+          leaves.push([sid,0,height+h/2]);height+=h+30;
           continue;
         }
         height+=48;
@@ -165,7 +169,9 @@ function overview(){
       caption+=' ×{'+block.state_ids.map(id=>projection.states.get(id).repeat_count).join(',')+'}';
       if(n.protected)flag='protected';
     }
-    items.set(d.id,{data:{...d,label:caption,flag}});
+    const entry={...d,label:caption,flag};
+    if(d.view_kind==='state')entry.state_height=Math.max(60,Math.ceil(6.5*d.port_count+16));
+    items.set(d.id,{data:entry});
   }
   layoutOverview(items,projection);
   for(const e of projection.edges)items.set(e.id,{data:{...e,color:pathColors.get(e.path_id)},classes:'trace'});
@@ -176,7 +182,7 @@ function overview(){
   selector.value=focusedPathId||'';
   highlight();
   el('meta').textContent=projection.support.path_count+' 条登记路径 · '+projection.support.molecule_count+' 个独立分子';
-  el('legend').textContent='彩线按登记路径连接。点击区块展开次数状态，再点击状态查看各次访问的拷贝。';
+  el('legend').textContent=projection.routes.size?'彩线按登记路径连接。点击区块展开次数状态，再点击状态查看各次访问的拷贝。':'所选范围内没有当前样本支持的路径，可调整样本或显示路径范围。';
   if(focused)overviewDetail(focused,el('visit').value);
 }
 function highlight(){
@@ -297,7 +303,8 @@ function overviewDetail(id,preferred){
   }
   el('name').textContent=s?pattern(n)+' ×'+s.repeat_count:pattern(n)+' · 结构区块';
   const counts=projection.blocks.get(d.sn).state_ids.map(id=>projection.states.get(id).repeat_count);
-  el('info').textContent=(s?'原始序列 '+s.original_sequence_count+' 型 · 展示序列 '+s.represented_sequence_count+' 型 · '+s.changed_visit_ids.length+' 次访问含改写':
+  const original=el('mode').value==='original';
+  el('info').textContent=(s?(original?'当前原始序列 ':'原始序列 ')+s.original_sequence_count+' 型 · '+(original?'展示序列 ':'当前展示序列 ')+s.represented_sequence_count+' 型 · '+s.changed_visit_ids.length+' 次访问含改写':
     '当前登记次数集合 {'+counts.join(',')+'}')+' · '+group.visit_count+' 次访问 / '+group.path_count+' 条路径 / '+group.molecule_count+' 个独立分子';
   const btn=el('toggle');btn.hidden=false;
   btn.textContent=s?(expandedStates.has(s.state_id)?'收起该状态的拷贝':'展开该状态的拷贝'):
@@ -346,7 +353,10 @@ el('toggle').onclick=()=>{
   else{expandedSupernodes.add(d.sn);focused=containerId(d.sn)}
   overview();
 };
-el('focusBlock').onclick=()=>{const e=cy.getElementById(focused);if(e.length)cy.fit(e.union(e.descendants()),35)};
+el('focusBlock').onclick=()=>{
+  const sn=cy.getElementById(focused).data('sn'),block=cy.getElementById(expandedSupernodes.has(sn)?containerId(sn):summaryId(sn));
+  if(block.length)cy.fit(block.union(block.descendants()),35);
+};
 el('fit').onclick=()=>{if(cy.elements().length)cy.fit(cy.elements(),30)};
 startView();
 </script></html>

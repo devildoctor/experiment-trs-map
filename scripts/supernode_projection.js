@@ -58,7 +58,7 @@ function projectStateGraph(bundle, {pathIds, sample='', expandedSupernodes=new S
       if(!expandedSupernodes.has(sn))continue;
       const opened=expandedStates.has(sid);
       node(opened?stateContainerId(sn,state.repeat_count):sid,opened?'state-container':'state',sn,
-           {parent:containerId(sn),state_id:sid});
+           {parent:containerId(sn),state_id:sid,port_count:total.get(sid)});
     }
   }
   for(const p of members.keys()){
@@ -78,7 +78,7 @@ function projectStateGraph(bundle, {pathIds, sample='', expandedSupernodes=new S
           node(id,'copy',sn,{parent:stateContainerId(sn,v.repeat_count),state_id:sid,
             visit_id:v.visit_id,path_id:p,occurrence_id:oid,index:i,
             dna:bundle.variants[v[mode+'_variant_ids'][i]],source_node_id:v[mode+'_gfa_walk'][i],
-            changed:v.original_variant_ids[i]!==v.represented_variant_ids[i]});
+            changed:bundle.variants[v.original_variant_ids[i]]!==bundle.variants[v.represented_variant_ids[i]]});
         });
       }
       route.push({visit_id:v.visit_id,display_node_ids:ids});
