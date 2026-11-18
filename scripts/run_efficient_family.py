@@ -23,19 +23,24 @@ def annotate(records,model_path,locus):
     return model,model_hash,features,tokens,slots
 
 
-def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True):
+def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True,supernode_policy=None):
     out.mkdir(parents=True,exist_ok=False);start=time.monotonic()
     records=json.loads(input_path.read_text());original_model=json.loads(model_path.read_text())
     locus=Locus(original_model['locus'],original_model['chrom'],original_model['start'],original_model['end'],(),boundary_status=original_model['boundary_status'])
-    for r in records:r['source_path_id']=r['id']
+    for r in records:r.setdefault('source_path_id',r['id'])
     if not any(r.get('role')=='reference' for r in records):
         if reference is None:raise ValueError('An observation-only input needs its reference FASTA')
         with IndexedFastaReference(reference) as fasta:sequence=fasta.fetch(locus.chrom,locus.start,locus.end).upper()
         records=assign_reference_paths(records,sequence,[locus.chrom,locus.start,locus.end])
+    records.sort(key=lambda r:r['id'])
     assert records[0]['id']=='P0001' and records[0]['role']=='reference'
     dump(out/'source_members.json',records);dump(out/'locus_model.original.json',original_model)
     table(out/'input_path_mapping.tsv',[dict(path=r['id'],source_path=r.get('source_path_id',''),role=r['role'],sha256=r['sha256']) for r in records])
     kind=repeat_type(original_model)
+    if supernode_policy is not None:
+        if kind!='VNTR': raise ValueError('Supernode policy requires a VNTR locus')
+        from vntrsupernode_export import export_supernodes
+        return export_supernodes(out,locus,records,model_path,supernode_policy,render,input_path)
     processing=dict(repeat_type=kind,decoder='seed_dp' if kind=='STR' else 'hmm_single',
         hmm_skip=kind=='VNTR',efficient_dictionary=kind=='VNTR',family_display=kind=='VNTR',
         q=q if kind=='VNTR' else None,loss_fraction=fraction if kind=='VNTR' else 0)
@@ -114,9 +119,13 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input',type=Path,required=True);parser.add_argument('--model',type=Path,required=True)
     parser.add_argument('--out',type=Path,required=True);parser.add_argument('--reference',type=Path)
-    parser.add_argument('--q',type=float,default=.1);parser.add_argument('--loss-fraction',type=float,default=.03)
+    parser.add_argument('--q',type=float);parser.add_argument('--loss-fraction',type=float)
+    parser.add_argument('--supernode-policy',type=Path)
     parser.add_argument('--no-render',action='store_true');args=parser.parse_args()
-    run(args.input,args.model,args.out,args.q,args.loss_fraction,args.reference,not args.no_render)
+    if args.supernode_policy and (args.q is not None or args.loss_fraction is not None):
+        parser.error('--supernode-policy supplies the dictionary and budget')
+    run(args.input,args.model,args.out,.1 if args.q is None else args.q,
+        .03 if args.loss_fraction is None else args.loss_fraction,args.reference,not args.no_render,args.supernode_policy)
 
 
 if __name__=='__main__':main()

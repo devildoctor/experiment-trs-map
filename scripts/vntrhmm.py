@@ -54,14 +54,16 @@ def build_model(motifs):
     return states,incoming,emitting,silent+[0],emissions
 
 
-def decode(sequence,motifs):
+def decode(sequence,motifs,assess=False):
     """Return a single maximum-score trace; fixed state order breaks exact ties."""
-    if not sequence:return [],0.0
+    if not sequence:return ([],0.0,[],[0,0]) if assess else ([],0.0)
     if set(sequence)-set('ACGT'):raise ValueError('HMM requires ACGT input')
     states,incoming,emitting,silent,emissions=build_model(tuple(motifs))
     count=len(states);previous=[float('-inf')]*count;previous[0]=0.0
     traces=[array('i',[-1])*count]
+    tied_rows = [{}]
     for base in sequence:
+        ties = {}
         scores=[float('-inf')]*count;back=array('i',[-1])*count;ems=emissions[base]
         for s in emitting:
             best=float('-inf');parent=-1
@@ -69,12 +71,23 @@ def decode(sequence,motifs):
                 value=previous[t]+weight
                 if value>best:best=value;parent=t
             scores[s]=best+ems[s];back[s]=parent
+            if assess and parent >= 0:
+                alternatives = [t for t, weight in incoming[s] if t != parent
+                                and best - (previous[t] + weight) <= 1e-10]
+                if alternatives:
+                    ties[s] = alternatives
         for s in silent:
             best=float('-inf');parent=-1
             for t,weight in incoming[s]:
                 value=scores[t]+weight
                 if value>best:best=value;parent=t
             scores[s]=best;back[s]=parent
+            if assess and parent >= 0:
+                alternatives = [t for t, weight in incoming[s] if t != parent
+                                and best - (scores[t] + weight) <= 1e-10]
+                if alternatives:
+                    ties[s] = alternatives
+        if assess: tied_rows.append(ties)
         previous=scores;traces.append(back)
     score=previous[0];i=len(sequence);s=0;trace=[]
     while i or s:
@@ -90,15 +103,58 @@ def decode(sequence,motifs):
             if end>start:spans.append((start,end,mi))
             start=end;mi=None
         elif mi is None:mi=motif
-    return spans,score
+    if not assess:
+        return spans,score
+    # Follow only cells reachable from the optimum terminal. Each emitted base
+    # projects to a motif and a token-start bit, independent of internal M/I/D.
+    options = [set() for _ in sequence]
+    reachable = {(len(sequence), 0)}
+    work = list(reachable)
+    while work:
+        end, state = work.pop()
+        if (end, state) == (0, 0):
+            continue
+        motif, kind, _ = states[state]
+        emits = kind in ('M', 'I', 'X')
+        for parent in [traces[end][state], *tied_rows[end].get(state, ())]:
+            if emits:
+                options[end-1].add((motif, parent == 0))
+            cell = (end-int(emits), parent)
+            if cell not in reachable:
+                reachable.add(cell)
+                work.append(cell)
+    # Count complete motif tokens along complete traces (SKIP is excluded).
+    rank = {state:i for i,state in enumerate(emitting + silent)}
+    ranges = {(0,0):(0,0)}
+    for end,state in sorted(reachable, key=lambda c:(c[0], rank[c[1]])):
+        if (end,state) == (0,0):
+            continue
+        kind = states[state][1]
+        parents = [traces[end][state], *tied_rows[end].get(state, ())]
+        bounds = [ranges[end-int(kind in ('M','I','X')), t] for t in parents]
+        increments = [int(kind == 'B' and states[t][0] >= 0) for t in parents]
+        ranges[end,state] = (min(b[0]+v for b,v in zip(bounds,increments)),
+                             max(b[1]+v for b,v in zip(bounds,increments)))
+    return spans,score,options,list(ranges[len(sequence),0])
 
 
-def segment_hmm(task,return_details=False,**unused):
+def segment_hmm(task,return_details=False,assess_structure=False,**unused):
     sequence,dictionary,_=task
     records=sorted((m for m in dictionary if m.get('level','base')=='base'),key=lambda m:m['id'])
     motifs=[m['sequence'] for m in records]
     if not motifs:raise ValueError('HMM needs a frozen motif dictionary')
-    spans,score=decode(sequence,motifs);tokens=[]
+    if assess_structure and set(sequence)-set('ACGT'):
+        if set(sequence)-set('ACGTRYSWKMBDHVN'):
+            raise ValueError('Invalid DNA alphabet')
+        opaque=dict(start=0,end=len(sequence),exact_bases=sequence,status='unknown',
+                    motif='U',base='U',template='',orientation='?',phase=0,edit_distance=0,
+                    annotation_ambiguity=False,boundary_assessment='not_assessed',
+                    structure_assessment='not_assessed')
+        audit=dict(source=VERSION,decoder='opaque_iupac',ambiguity_scope='not_assessed',
+                   annotation_ambiguity=False,alternative=[],metrics=base_metrics([opaque]))
+        return ([opaque],audit) if return_details else [opaque]
+    decoded=decode(sequence,motifs,assess=assess_structure)
+    spans,score=decoded[:2];tokens=[]
     for start,end,mi in spans:
         bases=sequence[start:end]
         if mi==-1:
@@ -121,4 +177,22 @@ def segment_hmm(task,return_details=False,**unused):
                parameters=PARAMETERS,annotation_ambiguity=False,
                ambiguity_scope='not_enumerated_single_trace',alternative=[],
                metrics=base_metrics(tokens))
+    if assess_structure:
+        options, count_range = decoded[2:]
+        for t in tokens:
+            start,end=t['start'],t['end']
+            # Both outer cuts must occur in every complete optimal projection.
+            certain = all(b for _,b in options[start]) and (
+                end == len(options) or all(b for _,b in options[end]))
+            invariant = certain and all(len(opts) == 1 for opts in options[start:end])
+            t['boundary_assessment'] = 'invariant_within_model' if certain else 'ambiguous'
+            t['structure_assessment'] = 'invariant_within_model' if invariant else 'ambiguous'
+            t['annotation_ambiguity'] = not invariant
+        audit.update(ambiguity_scope='optimal_boundary_and_motif_projections',
+                     tie_tolerance=1e-10, complete_motif_count_range=count_range,
+                     annotation_ambiguity=any(t['annotation_ambiguity'] for t in tokens),
+                     alternative_base_projections=[
+                         dict(offset=i, choices=[[records[m]['id'] if m>=0 else 'SKIP',b]
+                                                for m,b in sorted(opts)])
+                         for i,opts in enumerate(options) if len(opts)>1])
     return (tokens,audit) if return_details else tokens

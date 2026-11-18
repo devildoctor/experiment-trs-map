@@ -229,7 +229,7 @@ def export_budget(out,records,original_tokens,rep_tokens,slots,views,represented
         total_edits_bp=sum(x['loss_bp'] for x in losses),
         substitutions=sum(x['substitutions'] for x in losses),insertions=sum(x['insertions'] for x in losses),deletions=sum(x['deletions'] for x in losses),
         max_path_loss_fraction=max((x['fraction'] for x in losses),default=0),
-        mean_path_loss_fraction=sum(x['fraction'] for x in losses)/sum(r.get('role')!='reference' for r in records),
+        mean_path_loss_fraction=sum(x['fraction'] for x in losses)/max(1,sum(r.get('role')!='reference' for r in records)),
         total_original_observed_bp=sum(len(r['sequence']) for r in records if r.get('role')!='reference'),
         literal_nodes=len(graph['nodes']),literal_edges=len(graph['edges']),
         sequence_variant_options=len(display['sequence_variants']),

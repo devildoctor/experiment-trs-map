@@ -1,0 +1,11 @@
+{
+  "policy_id": "structure-supernode-v1",
+  "annotation_dictionary": "full",
+  "max_module_width": 12,
+  "loss_fraction": 0.03,
+  "max_unit_substitutions": 2,
+  "allowed_operations": ["S"],
+  "allow_cross_motif_edits": false,
+  "require_assessed_structure_for_loss": true,
+  "loss_objective": "expanded_literal_N_plus_E"
+}

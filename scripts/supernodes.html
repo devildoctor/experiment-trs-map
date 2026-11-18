@@ -1,0 +1,143 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VNTR 超节点图</title><style>
+*{box-sizing:border-box}body{margin:0;font:14px "Segoe UI","Microsoft YaHei",sans-serif;color:#172f39;background:#f8faf9}
+header,nav,aside{padding:12px 18px}header{display:flex;gap:22px;align-items:baseline;background:#123742;color:white}h1{font-size:20px;margin:0}nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #cad8d6;background:white}
+select,button{font:inherit;border:1px solid #b4c8c6;border-radius:5px;padding:4px;background:white}button{cursor:pointer}label{display:inline-flex;gap:4px;align-items:center}main{display:grid;grid-template-columns:minmax(0,1fr) 355px;height:calc(100vh - 100px);min-height:420px}#canvas{min-width:0;background:#f8faf9}aside{overflow:auto;border-left:1px solid #cad8d6;background:white}aside p{line-height:1.65}aside select{max-width:100%}h2{font-size:16px}ol{padding-left:22px}li{margin:8px 0}code{font:12px Consolas,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}#tools{display:flex;gap:8px;margin:10px 0}.muted{color:#516870}#meta{font-size:13px} @media(max-width:800px){main{grid-template-columns:1fr;height:auto}#canvas{height:60vh}aside{border-top:1px solid #cad8d6}}
+</style><header><h1 id="title"></h1><span id="meta"></span></header>
+<nav><label>样本<select id="sample"></select></label><label>路径 A<select id="pathA"></select></label><label>路径 B<select id="pathB"></select></label><label><input type="checkbox" id="only">仅看所选路径</label><label>序列<select id="mode"><option value="original">原始</option><option value="represented">展示</option></select></label><button id="fit">适应视图</button></nav>
+<main><div id="canvas"></div><aside><h2 id="name">结构图</h2><p id="info"></p><label id="vlabel" hidden>访问<select id="visit"></select></label><div id="tools"><button id="toggle" hidden></button></div><div id="details"></div></aside></main>
+<script>/* CYTOSCAPE */</script><script>
+'use strict';
+const data=/* DATA */;
+const el=id=>document.getElementById(id), paths=data.paths, nodes=data.graph.nodes;
+const active=new Set(), byId=new Map(), xy=new Map(), positions=new Map();
+let focused=null;
+function option(select,value,label){const o=new Option(label,value);select.add(o)}
+option(el('sample'),'','全部');
+const names=new Set(Object.values(data.samples).flatMap(Object.keys));
+[...names].sort().forEach(s=>option(el('sample'),s,s));
+function pathsForSample(){
+  const s=el('sample').value;
+  return Object.keys(paths).filter(p=>!s || (data.samples[p][s]||[]).length);
+}
+function refreshSelectors(){
+  for(const id of ['pathA','pathB']){
+    const select=el(id),previous=select.value;select.replaceChildren();option(select,'','未选择');
+    for(const p of pathsForSample())option(select,p,p);
+    if([...select.options].some(o=>o.value===previous))select.value=previous;
+  }
+}
+refreshSelectors();
+el('title').textContent=data.graph.locus+' 重复结构';
+const chosen=()=>[el('pathA').value,el('pathB').value].filter(Boolean);
+function visiblePaths(){
+  const all=pathsForSample(),selected=chosen();
+  return el('only').checked && selected.length?all.filter(p=>selected.includes(p)):all;
+}
+const pattern=n=>n.ordered_pattern.map(k=>k[0]).join('·');
+const label=n=>pattern(n)+(n.observed_repeat_counts.some(k=>k>1)?' ×{'+n.observed_repeat_counts.join(',')+'}':'')+(n.lossy_visit_ids?' •':'');
+for(const vs of Object.values(paths)){
+  const total=vs.at(-1).original_interval[1];
+  for(const v of vs){
+    byId.set(v.visit_id,v);
+    const bucket=positions.get(v.supernode_id)||[];
+    bucket.push((v.original_interval[0]+v.original_interval[1])/(2*total));
+    positions.set(v.supernode_id,bucket);
+  }
+}
+const laneEnds=[];
+for(const n of Object.values(nodes).sort((a,b)=>b.path_count-a.path_count || a.id.localeCompare(b.id))){
+  const pos=positions.get(n.id).sort((a,b)=>a-b);
+  const x=pos[Math.floor(pos.length/2)]*6200;
+  let lane=laneEnds.findIndex(previous=>previous.every(value=>Math.abs(x-value)>185));
+  if(lane<0){lane=laneEnds.length;laneEnds.push([])}
+  laneEnds[lane].push(x);xy.set(n.id,{x,y:lane*68});
+}
+const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},minZoom:.009,maxZoom:5,
+  style:[
+    {selector:'node',style:{'label':'data(label)','width':120,'height':34,'shape':'round-rectangle','background-color':'#528a83','color':'#12343a','text-valign':'bottom','text-margin-y':2,'font-size':12,'min-zoomed-font-size':6}},
+    {selector:'node[flag="opaque"]',style:{'background-color':'#ad9470','shape':'diamond'}},
+    {selector:'node[flag="protected"]',style:{'border-width':2,'border-color':'#81515e'}},
+    {selector:'node[flag="loss"]',style:{'border-width':4,'border-color':'#cb5a2b'}},
+    {selector:'node[flag="child"]',style:{'background-color':'#8ab1b7','shape':'rectangle','font-family':'monospace','width':130}},
+    {selector:'edge',style:{'width':1,'curve-style':'bezier','target-arrow-shape':'triangle','line-color':'#b5c6c6','target-arrow-color':'#b5c6c6','opacity':.7}},
+    {selector:'.a',style:{'line-color':'#127c9a','target-arrow-color':'#127c9a','background-color':'#127c9a','width':3,'z-index':5}},
+    {selector:'.b',style:{'line-color':'#bc6550','target-arrow-color':'#bc6550','background-color':'#bc6550','width':3,'z-index':5}},
+    {selector:'.a.b',style:{'line-color':'#74509b','target-arrow-color':'#74509b','background-color':'#74509b'}},
+    {selector:'node.a,node.b',style:{'width':135}},{selector:'.dim',style:{'opacity':.16}}
+  ]});
+function refresh(){
+  const items=new Map(), used=visiblePaths(), selected=chosen(), mode=el('mode').value;
+  function add(entry,p){
+    const id=entry.data.id;
+    if(!items.has(id)){entry.tags=new Set();items.set(id,entry)}
+    const tags=items.get(id).tags;
+    if(p===el('pathA').value)tags.add('a');
+    if(p===el('pathB').value)tags.add('b');
+  }
+  for(const p of used){
+    let previous=null;
+    for(const v of paths[p]){
+      const n=nodes[v.supernode_id],opened=active.has(v.visit_id),parent=xy.get(n.id);
+      const walk=v[mode+'_gfa_walk'];
+      for(let i=0;i<(opened?walk.length:1);i++){
+        const id=opened?'u:'+v.ordered_occurrence_ids[i]:n.id;
+        const changed=opened?v.original_variant_ids[i]!==v.represented_variant_ids[i]:!!n.lossy_visit_ids;
+        const flag=changed?'loss':opened?'child':n.kind==='opaque'?'opaque':n.protected?'protected':'';
+        const position=opened?{x:parent.x+i*155,y:parent.y+37}:parent;
+        const text=opened?data.variants[v[mode+'_variant_ids'][i]]:label(n);
+        add({data:{id,label:text,flag,sn:n.id,visit:opened?v.visit_id:'',source_node_id:opened?walk[i]:null},position},p);
+        if(previous!==null)add({data:{id:'e:'+previous+'>'+id,source:previous,target:id}},p);
+        previous=id;
+      }
+    }
+  }
+  cy.batch(()=>{
+    cy.elements().forEach(e=>{if(!items.has(e.id()))e.remove()});
+    for(const e of items.values()){
+      let item=cy.getElementById(e.data.id);
+      if(item.empty())item=cy.add({data:e.data,position:e.position});
+      else if(!e.data.source)item.data({label:e.data.label,flag:e.data.flag,source_node_id:e.data.source_node_id});
+      item.classes([...e.tags,...(!e.tags.size && selected.length?['dim']:[])].join(' '));
+    }
+  });
+  const s=el('sample').value;
+  const ms=new Set(used.flatMap(p=>s?data.samples[p][s]||[]:Object.values(data.samples[p]).flat()));
+  el('meta').textContent=used.length+' 条路径 · '+ms.size+' 个独立分子 · 路径预算 '+(100*data.policy.loss_fraction)+'%';
+  if(focused)detail(focused,el('visit').value);
+  else el('info').textContent='选择一个节点查看登记访问、次数和逐单元序列。蓝色和橙色分别表示所选路径，共有部分为紫色。';
+}
+function detail(id,preferred){
+  focused=id;const n=nodes[id],allowed=new Set(visiblePaths()),vs=n.member_visit_ids.map(k=>byId.get(k)).filter(v=>allowed.has(v.path_id));
+  const select=el('visit');select.replaceChildren();el('details').replaceChildren();
+  if(!vs.length){focused=null;el('name').textContent='结构图';el('info').textContent='当前筛选中没有这次访问。';el('toggle').hidden=true;el('vlabel').hidden=true;return}
+  for(const v of vs)option(select,v.visit_id,v.visit_id+' ×'+v.repeat_count);
+  const choice=vs.find(v=>v.visit_id===preferred)||vs.find(v=>chosen().includes(v.path_id))||vs[0];select.value=choice.visit_id;
+  el('name').textContent=label(n);el('vlabel').hidden=false;
+  el('info').textContent=n.kind+' · 全部支持 '+n.path_count+' 条路径 / '+n.molecule_count+' 个分子 / '+n.visit_count+' 次访问';
+  const button=el('toggle');button.hidden=false;button.textContent=active.has(choice.visit_id)?'收起这次访问':'展开这次访问';
+  const info=document.createElement('p');
+  info.textContent='边界 '+choice.boundary_assessment+' · 结构 '+choice.structure_assessment+' · 单元对应 '+choice.homology_assessment+' · 位置 '+choice.position_assessment;
+  el('details').append(info);
+  const ol=document.createElement('ol');
+  choice.ordered_occurrence_ids.forEach((oid,i)=>{
+    const li=document.createElement('li'),code=document.createElement('code'),ori=data.variants[choice.original_variant_ids[i]],rep=data.variants[choice.represented_variant_ids[i]];
+    const unit=n.ordered_pattern[i%n.ordered_pattern.length];
+    code.textContent=oid+' '+unit[0]+' '+unit[4]+' '+unit[3]+'\n原始 '+ori+' · S'+choice.original_gfa_walk[i]+'\n展示 '+rep+' · S'+choice.represented_gfa_walk[i];
+    code.style.whiteSpace='pre-wrap';li.append(code);
+    for(const eid of choice.loss_event_ids){
+      const e=data.losses[eid];if(e.occurrence_id!==oid)continue;
+      const line=document.createElement('div');line.textContent='S @'+e.ostart+' '+e.original+' → '+e.represented+' · 代表 '+e.representative_occurrence;li.append(line);
+    }
+    ol.append(li);
+  });
+  el('details').append(ol);
+}
+cy.on('tap','node',e=>detail(e.target.data('sn'),e.target.data('visit')));
+el('sample').onchange=()=>{refreshSelectors();refresh()};
+for(const id of ['pathA','pathB','only','mode'])el(id).onchange=refresh;
+el('visit').onchange=()=>detail(focused,el('visit').value);
+el('toggle').onclick=()=>{const v=el('visit').value;if(active.has(v))active.delete(v);else active.add(v);refresh()};
+el('fit').onclick=()=>cy.fit(cy.elements(),30);
+refresh();cy.fit(cy.elements(),30);
+</script></html>

@@ -193,6 +193,7 @@ def main():
     p.add_argument('--merge-rules',type=Path);p.add_argument('--loss-budget',type=float,default=0)
     p.add_argument('--graph-mode',choices=['sequence','structure'],default='sequence')
     p.add_argument('--locus-model',type=Path);p.add_argument('--structure-policy',type=Path)
+    p.add_argument('--supernode-policy',type=Path)
     p.add_argument('--max-loss-bp',type=int,default=0,choices=[0,1,2])
     p.add_argument('--dot',default='dot')
     p.add_argument('--previous-members',type=Path,help='Optional previous source_members.json for old-name mapping')
@@ -205,7 +206,12 @@ def main():
     with IndexedFastaReference(args.reference) as reference:
         flank_context=build_context(selected[0],reference)
         reference_sequence=reference.fetch(selected[0].chrom,selected[0].start,selected[0].end).upper()
-    if args.graph_mode=='structure':
+    if args.supernode_policy:
+        if args.graph_mode!='structure' or not args.locus_model:
+            p.error('Supernode mode needs --graph-mode structure and --locus-model')
+        if args.structure_policy or args.preview_paths or args.merge_rules or args.loss_budget or args.max_loss_bp:
+            p.error('Supernode mode uses the complete paths and the policy budget')
+    elif args.graph_mode=='structure':
         if not args.locus_model or not args.structure_policy:p.error('Structure mode needs --locus-model and --structure-policy')
         structure_policy=json.loads(args.structure_policy.read_text(encoding='utf-8'))
         if structure_policy.get('schema_version')==2:
@@ -266,12 +272,17 @@ def main():
     if flank_context:
         for name in ['vntrflankalign.py']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+    if args.supernode_policy:
+        from vntrsupernode_export import export_supernodes
+        summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy)
+        print(json.dumps(summary),flush=True)
+        return
     if args.graph_mode=='structure':
         from vntrpathstructure_export import export_structure
         for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         summary=export_structure(destination,locus,records,excluded,metadata,args.locus_model,args.structure_policy,
-            args.loss_budget if structure_policy.get('schema_version') in (2,3) else args.max_loss_bp,args.preview_paths,args.dot,rows if args.structures_json else None,
+            args.loss_budget if structure_policy.get('schema_version') in (2,3,4) else args.max_loss_bp,args.preview_paths,args.dot,rows if args.structures_json else None,
             payload.get('audit') if args.structures_json else None)
     else:
         summary=export_graphs(destination,args.locus,records,excluded,metadata,args.preview_paths,policy,args.loss_budget,args.dot)

@@ -81,7 +81,7 @@ def summarize(sequence, tokens, audit, model):
 
 def annotate_paths(records, model_path, locus, imported_rows=None, imported_audit=None,select_representative=False,export_optimal=False,decoder='seed_dp'):
     model, dictionary = load_model(model_path, locus)
-    if decoder=='hmm_single':require_vntr(model)
+    if decoder in ('hmm_single','hmm_assessed'):require_vntr(model)
     model_hash = sha256(model_path.read_bytes()).hexdigest()
     imported = defaultdict(list)
     if imported_rows:
@@ -112,16 +112,21 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
                              sequence.endswith(t['sequence'])), None)
             stop = len(sequence)-len(terminal['sequence']) if terminal else len(sequence)
             decode=segment
-            if decoder=='hmm_single':
+            if decoder in ('hmm_single','hmm_assessed'):
                 from vntrhmm import segment_hmm
                 decode=segment_hmm
             tokens, audit = decode((sequence[:stop], dictionary, 'HiFi'), return_details=True, collect_optimal=True,
-                                    select_representative=select_representative,export_optimal=export_optimal)
+                                    select_representative=select_representative,export_optimal=export_optimal,
+                                    **({'assess_structure':True} if decoder=='hmm_assessed' else {}))
             if terminal:
                 token = dict(start=stop, end=len(sequence), exact_bases=sequence[stop:],
                              template=terminal['sequence'], motif=terminal['id'], base=terminal['id'],
                              orientation='+', phase=0, status='unit', role='right_terminal',
                              edit_distance=0, annotation_ambiguity=False)
+                if decoder == 'hmm_assessed':
+                    token.update(structure_assessment='invariant_within_model', boundary_assessment='invariant_within_model')
+                    if 'complete_motif_count_range' in audit:
+                        audit['complete_motif_count_range'] = [n+1 for n in audit['complete_motif_count_range']]
                 tokens.append(token)
                 if audit.get('alternative'): audit['alternative'].append(deepcopy(token))
                 audit['terminal_scope'] = 'frozen_sample_specific_template_compatibility_not_new_support'
