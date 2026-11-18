@@ -48,34 +48,70 @@ def load_policy(path):
     return policy
 
 
+def unique_rows(rows,key,what):
+    result={}
+    for row in rows:
+        identity=key(row)
+        if identity in result: raise ValueError('Duplicate '+what+': '+str(identity))
+        result[identity]=row
+    return result
+
+
+def path_budget(record,policy):
+    return 0 if record['role']=='reference' else int(len(record['sequence'])*Fraction(str(policy['loss_fraction'])))
+
+
+def verify_support(row,paths,records):
+    ids=set(paths)
+    molecules={m for p in ids if records[p]['role']!='reference' for m in records[p]['molecules']}
+    if (sorted(row['path_ids'])!=sorted(ids) or row['path_count']!=len(ids)
+            or row['visit_count']!=len(paths) or row['molecule_count']!=len(molecules)):
+        raise ValueError('Incorrect path, visit or molecule support')
+
+
 def validate_bundle(out):
     prov=read(out/'provenance.json')
+    modes=('original','represented')
+    required={'display_graph.json','sequence_variants.json','source_members.json','path_visits.jsonl',
+              'supernode_policy.json','annotation_audit.json','losses.jsonl','paths.tsv','locus_model.original.json'}
+    for mode in modes:
+        required.update((prov['locus']+'.'+mode+'.gfa','paths.'+mode+'.fa'))
+    if not required.issubset(prov['files']): raise ValueError('Incomplete bundle manifest')
     for name,h in prov['files'].items():
         if digest(out/name)!=h: raise ValueError('Bundle hash mismatch: '+name)
     display=read(out/'display_graph.json')
+    if display['locus']!=prov['locus']: raise ValueError('Locus mismatch')
     nodes=display['nodes']
     variants=read(out/'sequence_variants.json')
-    records={r['id']:r for r in read(out/'source_members.json')}
-    paths={row['path']:row['visits'] for row in map(json.loads,(out/'path_visits.jsonl').read_bytes().splitlines())}
+    records=unique_rows(read(out/'source_members.json'),lambda r:r['id'],'source path')
+    rows=unique_rows(map(json.loads,(out/'path_visits.jsonl').read_bytes().splitlines()),lambda r:r['path'],'path')
+    paths={p:row['visits'] for p,row in rows.items()}
+    unique_rows((v for vs in paths.values() for v in vs),lambda v:v['visit_id'],'visit')
     if set(paths)!=set(records): raise ValueError('Path identity mismatch')
     policy=load_policy(out/'supernode_policy.json')
     annotations=read(out/'annotation_audit.json')
     events=defaultdict(list)
-    for e in map(json.loads,(out/'losses.jsonl').read_bytes().splitlines()):
+    ledger=unique_rows(map(json.loads,(out/'losses.jsonl').read_bytes().splitlines()),lambda e:e['id'],'event')
+    for e in ledger.values():
+        if e['path'] not in records: raise ValueError('Unknown event path')
         events[e['path']].append(e)
-    modes=('original','represented')
-    walks,sequences={},{}
+    walks,sequences,segments={},{},{}
     for mode in modes:
         gfa=out/(display['locus']+'.'+mode+'.gfa')
         walks[mode]={}
+        segments[mode]={}
         for line in gfa.read_text(encoding='ascii').splitlines():
             fields=line.split('\t')
+            if fields[0]=='S': segments[mode][int(fields[1])]=fields[2]
             if fields[0]=='P': walks[mode][fields[1]]=[int(x[:-1]) for x in fields[2].split(',')]
         lines=(out/('paths.'+mode+'.fa')).read_text(encoding='ascii').splitlines()
-        sequences[mode]=dict(zip((s[1:] for s in lines[::2]),lines[1::2]))
+        pairs=unique_rows(zip(lines[::2],lines[1::2]),lambda pair:pair[0][1:],'FASTA path')
+        sequences[mode]={p:pair[1] for p,pair in pairs.items()}
+        if set(sequences[mode])!=set(paths): raise ValueError('FASTA path identities differ')
         validate_gfa(gfa,sequences[mode])
     occurrences={}
-    visit_edges=set()
+    node_visits=defaultdict(list)
+    edge_paths=defaultdict(list)
     for p,vs in paths.items():
         es=events.get(p,[])
         by_occ=defaultdict(list)
@@ -84,15 +120,33 @@ def validate_bundle(out):
         if (r['sequence']!=sequences['original'][p] or
                 sha256(r['sequence'].encode()).hexdigest()!=r['sha256']):
             raise ValueError('Original sequence or source hash mismatch '+p)
+        seen_positions=set()
+        for e in es:
+            a=e['ostart']
+            if (e['op']!='S' or not 0<=a<len(r['sequence']) or a in seen_positions
+                or (e['oend'],e['rstart'],e['rend'])!=(a+1,a,a+1)
+                or e['original']!=r['sequence'][a] or e['represented']!=sequences['represented'][p][a:a+1]
+                or e['original']==e['represented']):
+                raise ValueError('Invalid single-base substitution '+e['id'])
+            seen_positions.add(a)
         if restore_original(sequences['represented'][p],es)!=r['sequence']:
             raise ValueError('Residual mismatch '+p)
-        budget=int(len(r['sequence'])*Fraction(str(policy['loss_fraction']))) if r['role']!='reference' else 0
+        budget=path_budget(r,policy)
         if len(es)>budget: raise ValueError('Path budget exceeded '+p)
         cursor=0
         for v in vs:
             node=nodes[v['supernode_id']]
             i,j=v['token_interval']
             ann=annotations[p]['tokens'][i:j]
+            if not (v['path_id']==p and 0<=i<j<=len(annotations[p]['tokens'])):
+                raise ValueError('Invalid visit coordinates or owner '+v['visit_id'])
+            interval=[ann[0]['start'],ann[-1]['end']]
+            for mode in modes:
+                walk=v[mode+'_gfa_walk']
+                ids=v[mode+'_variant_ids']
+                if (v[mode+'_interval']!=interval or walk!=walks[mode][p][i:j] or len(ids)!=j-i
+                    or any(segments[mode][n]!=variants[k] for n,k in zip(walk,ids))):
+                    raise ValueError('Invalid local '+mode+' expansion '+v['visit_id'])
             keys=[list(unit_key(t)) for t in ann]
             if (cursor!=i or j<=i or node['ordered_pattern']*v['repeat_count']!=keys
                 or v['ordered_occurrence_ids']!=[f'{p}:u{k}' for k in range(i,j)]
@@ -111,31 +165,43 @@ def validate_bundle(out):
                         or len(changes)>policy['max_unit_substitutions']):
                     raise ValueError('Unit substitutions mismatch '+oid)
                 if changes and (node['protected'] or v['structure_assessment']!='invariant_within_model'
-                                or v['boundary_assessment']!='invariant_within_model'):
+                                or v['boundary_assessment']!='invariant_within_model' or v['position_assessment']!='aligned'):
                     raise ValueError('Edited protected unit '+oid)
-                occurrences[oid]=(p,t,original,node['id'])
+                slot=annotations[p]['slot_audit']['selected_slots'][i+k]
+                occurrences[oid]=(p,t,original,rep,node['id'],slot)
                 visit_loss.extend(e['id'] for e in unit_events)
             if visit_loss!=v['loss_event_ids']: raise ValueError('Local loss mismatch '+v['visit_id'])
+            node_visits[v['supernode_id']].append(v)
         if cursor!=len(annotations[p]['tokens']): raise ValueError('Incomplete path '+p)
-        visit_edges.update((a['supernode_id'],b['supernode_id']) for a,b in zip(vs,vs[1:]))
+        for a,b in zip(vs,vs[1:]): edge_paths[a['supernode_id'],b['supernode_id']].append(p)
         for mode in modes:
             spelled=''.join(variants[k] for v in vs for k in v[mode+'_variant_ids'])
             walked=[k for v in vs for k in v[mode+'_gfa_walk']]
             if walked!=walks[mode][p] or spelled!=sequences[mode][p]:
                 raise ValueError('Expansion mismatch '+mode+' '+p)
-    if visit_edges!={(e['source'],e['target']) for e in display['edges']}:
-        raise ValueError('Display adjacency mismatch')
-    for p,es in events.items():
-        for e in es:
-            rp,rt,donor,rnode=occurrences[e['representative_occurrence']]
-            _,t,source,node=occurrences[e['occurrence_id']]
-            if (records[rp]['role']=='reference' or unit_key(t)!=unit_key(rt) or rnode!=node
-                 or donor!=e['representative_sequence'] or e['op']!='S'
-                 or e['supernode_id']!=node or donor[e['ostart']-t['start']]!=e['represented']):
-                raise ValueError('Invalid frozen representative '+e['id'])
+    if set(nodes)!=set(node_visits): raise ValueError('Display node identities differ')
+    for n,vs in node_visits.items():
+        node=nodes[n]
+        if (n!=node['id'] or sorted(node['member_visit_ids'])!=sorted(v['visit_id'] for v in vs)
+            or sorted(node['observed_repeat_counts'])!=sorted({v['repeat_count'] for v in vs})
+            or sorted(node.get('lossy_visit_ids',[]))!=sorted(v['visit_id'] for v in vs if v['loss_event_ids'])):
+            raise ValueError('Incorrect node membership '+n)
+        verify_support(node,[v['path_id'] for v in vs],records)
+    edges=unique_rows(display['edges'],lambda e:(e['source'],e['target']),'edge')
+    if set(edges)!=set(edge_paths): raise ValueError('Display adjacency mismatch')
+    for edge,ps in edge_paths.items(): verify_support(edges[edge],ps,records)
+    for e in ledger.values():
+        if e['occurrence_id'] not in occurrences or e['representative_occurrence'] not in occurrences:
+            raise ValueError('Unknown occurrence in event '+e['id'])
+        rp,rt,donor,_,rnode,rslot=occurrences[e['representative_occurrence']]
+        owner,t,_,rep,node,slot=occurrences[e['occurrence_id']]
+        if (owner!=e['path'] or records[rp]['role']=='reference' or unit_key(t)!=unit_key(rt) or rnode!=node
+            or rslot!=slot or donor!=rep or donor!=e['representative_sequence'] or e['supernode_id']!=node):
+            raise ValueError('Invalid frozen representative '+e['id'])
     return dict(paths=len(paths),occurrences=len(occurrences),original_gfa=True,original_expansion=True,
                 represented_gfa_and_expansion=True,dual_walks=True,loss_restore=True,
-                structure_and_protected_intervals=True,local_loss_and_donors=True,hashes=True)
+                structure_and_protected_intervals=True,local_loss_and_donors=True,local_walk_slices=True,
+                node_and_edge_support=True,manifest_coverage=True,hashes=True)
 
 
 def export_supernodes(out,locus,records,model_path,policy_path,render=True,input_path=None):

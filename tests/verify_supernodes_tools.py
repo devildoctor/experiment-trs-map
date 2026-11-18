@@ -50,17 +50,21 @@ def main():
             actual=fasta(text)
             result.update(odgi_paths=len(actual),odgi_sequence_match=actual==expected)
             if actual!=expected:result['mismatch_paths']=sorted(n for n in set(actual)|set(expected) if actual.get(n)!=expected.get(n))
-        except subprocess.CalledProcessError as e:
-            result.update(odgi_sequence_match=False,odgi_error=e.stderr.decode(errors='replace'))
-        info=command(args.bandage,'info',gfa,env=bandenv)
-        (args.out/(name+'.bandage.txt')).write_text(info)
-        svg=args.out/(name+'.bandage.svg')
-        command(args.bandage,'image',gfa,svg,'--height','900',env=bandenv)
-        result.update(bandage_info=bool(info.strip()),bandage_svg=ET.parse(svg).getroot().tag.endswith('svg'),
-                      svg_bytes=svg.stat().st_size,gfa_sha256=hashlib.sha256(gfa.read_bytes()).hexdigest())
+        except (subprocess.CalledProcessError,OSError,ValueError) as exc:
+            result.update(odgi_sequence_match=False,odgi_error=str(exc))
+        try:
+            info=command(args.bandage,'info',gfa,env=bandenv)
+            (args.out/(name+'.bandage.txt')).write_text(info)
+            result['bandage_info']=bool(info.strip())
+            svg=args.out/(name+'.bandage.svg')
+            command(args.bandage,'image',gfa,svg,'--height','900',env=bandenv)
+            result.update(bandage_svg=ET.parse(svg).getroot().tag.endswith('svg'),svg_bytes=svg.stat().st_size)
+        except (subprocess.CalledProcessError,OSError,ET.ParseError) as exc:
+            result.update(bandage_svg=False,bandage_error=str(exc))
+        result['gfa_sha256']=hashlib.sha256(gfa.read_bytes()).hexdigest()
     (args.out/'tool_validation.json').write_text(json.dumps(report,indent=2)+'\n')
-    for m in ('original','represented'):
-        if not all(report['checks'][m][k] for k in ('odgi_sequence_match','bandage_info','bandage_svg')):
+    for m,result in report['checks'].items():
+        if not all(result.get(k,False) for k in ('odgi_sequence_match','bandage_info','bandage_svg')):
             raise ValueError('Tool compatibility failed for '+m)
 
 

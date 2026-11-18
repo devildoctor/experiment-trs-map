@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from hashlib import sha256
 from pathlib import Path
 
@@ -61,6 +62,73 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(result['molecules'],0)
             self.assertEqual(result['edited_bp'],0)
             self.assertEqual(validate_gfa(out/'D1S80.original.gfa',{'P0001':'NRY'})['paths'],1)
+
+    def test_rehashed_semantic_corruption(self):
+        m,records=fixture()
+        a,b=[m['motifs'][i]['sequence'] for i in (0,3)]
+        records[1]['molecules']=['m1','m2','shared']
+        for r in records:
+            r['sequence']=a*3+b+a+b
+            if r['id']=='P0003':r['sequence']=r['sequence'][:3]+'A'+r['sequence'][4:]
+            r['sha256']=sha256(r['sequence'].encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)
+            self.assertEqual(export(out,records)['edited_bp'],1)
+            def reject(name,mutate):
+                path=out/name
+                raw=path.read_bytes()
+                jsonl=name.endswith('.jsonl')
+                value=[json.loads(x) for x in raw.splitlines()] if jsonl else json.loads(raw)
+                mutate(value)
+                content=''.join(json.dumps(x)+'\n' for x in value) if jsonl else json.dumps(value)
+                path.write_text(content)
+                manifest=json.loads((out/'provenance.json').read_bytes())
+                manifest['files'][name]=sha256(path.read_bytes()).hexdigest()
+                (out/'provenance.json').write_text(json.dumps(manifest))
+                try:
+                    with self.assertRaises(ValueError): validate_bundle(out)
+                finally:
+                    path.write_bytes(raw)
+                    manifest['files'][name]=sha256(raw).hexdigest()
+                    (out/'provenance.json').write_text(json.dumps(manifest))
+            def move_boundary(rows):
+                first,second=rows[0]['visits'][:2]
+                second['original_gfa_walk'].insert(0,first['original_gfa_walk'].pop())
+            reject('path_visits.jsonl',move_boundary)
+            reject('path_visits.jsonl',lambda rows:rows.append(rows[0]))
+            reject('path_visits.jsonl',lambda rows:rows[0]['visits'][1].update(visit_id=rows[0]['visits'][0]['visit_id']))
+            reject('display_graph.json',lambda g:next(iter(g['nodes'].values())).update(molecule_count=90))
+            reject('display_graph.json',lambda g:g['edges'][0].update(visit_count=90))
+            reject('display_graph.json',lambda g:next(iter(g['nodes'].values())).update(lossy_visit_ids=['extra']))
+            reject('losses.jsonl',lambda es:es.append(es[0]))
+            reject('losses.jsonl',lambda es:es[0].update(rstart=0))
+            reject('losses.jsonl',lambda es:es[0].update(path='P0001'))
+            reject('losses.jsonl',lambda es:es[0].update(representative_occurrence='P0002:u1'))
+            reject('path_visits.jsonl',lambda rows:next(v for row in rows for v in row['visits'] if v['loss_event_ids']).update(position_assessment='path_local'))
+            manifest=json.loads((out/'provenance.json').read_bytes())
+            del manifest['files']['paths.original.fa']
+            (out/'provenance.json').write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError,'manifest'):validate_bundle(out)
+
+    def test_repeated_iupac_failure_rejects_tool_run_after_report(self):
+        import verify_supernodes_tools as verify
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);out=root/'tools'
+            (root/'summary.json').write_text('{"locus":"X"}')
+            for mode in ('original','represented'):
+                (root/('paths.'+mode+'.fa')).write_text('>P1\nA\n')
+                (root/('X.'+mode+'.gfa')).touch()
+            def fake(tool,verb,*args,**kwargs):
+                if verb=='paths':
+                    return '>Repeated\nAAA\n' if 'repeated_iupac' in str(args[1]) else '>P1\nA\n'
+                if verb=='image':Path(args[1]).write_text('<svg/>')
+                return 'ok'
+            argv=['verify','--bundle',str(root),'--out',str(out),'--odgi','odgi','--bandage','Bandage']
+            with patch.object(sys,'argv',argv),patch.object(verify,'command',fake):
+                with self.assertRaisesRegex(ValueError,'repeated_iupac'):verify.main()
+            checks=json.loads((out/'tool_validation.json').read_bytes())['checks']
+            self.assertTrue(checks['original']['odgi_sequence_match'])
+            self.assertFalse(checks['repeated_iupac']['odgi_sequence_match'])
 
     def test_schema_budget_routing(self):
         self.assertEqual(structure_budget(1,0,2),2)
