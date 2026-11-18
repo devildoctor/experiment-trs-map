@@ -22,6 +22,7 @@ def write_viewer(out,display,visits,variants,records,events,policy,rows):
     data=json.dumps(bundle,ensure_ascii=False,separators=(',',':')).replace('<','\\u003c')
     library=root/'third_party/cytoscape-3.30.4'
     html=(root/'scripts/supernodes.html').read_text(encoding='utf8')
+    html=html.replace('/* PROJECTION */',(root/'scripts/supernode_projection.js').read_text(encoding='utf8'))
     html=html.replace('/* COMPARE */',(root/'scripts/supernode_compare.js').read_text(encoding='utf8'))
     html=html.replace('/* CYTOSCAPE */',(library/'cytoscape.min.js').read_text(encoding='utf8')).replace('/* DATA */',data)
     (out/(display['locus']+'.supernodes.html')).write_text(html,encoding='utf8')

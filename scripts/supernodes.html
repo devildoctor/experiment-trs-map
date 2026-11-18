@@ -12,18 +12,22 @@ article strong{margin-right:12px}article label{margin-right:8px}article p{margin
 main{flex:1;min-height:240px;height:auto}#canvas{min-height:200px}
 details{margin:10px 0}summary{cursor:pointer}details pre{max-height:160px;overflow:auto}
 @media(max-width:800px){body{height:auto}#tracks{grid-template-columns:1fr}#canvas{min-height:350px}}
+#scope{position:relative;margin:0}#scope div{position:absolute;z-index:10;background:white;border:1px solid #b4c8c6;padding:8px;width:220px}#range{width:100%}#tools{flex-wrap:wrap}article,article+article{border-color:#78918f}
 </style><header><h1 id="title"></h1><label>视图<select id="view"><option value="overview">全局总览</option><option value="compare">双路径比较</option></select></label></header>
 <nav><label id="globalSample" hidden>总览样本<select id="sample"></select></label>
-<label>序列<select id="mode"><option value="original">原始</option><option value="represented">展示</option></select></label>
+<details id="scope"><summary>显示路径范围</summary><div><label for="range">多选路径（Ctrl / Shift）</label><select multiple id="range" size="8"></select><button id="allPaths">显示全部路径</button></div></details>
+<label id="traceChoice">高亮路径<select id="tracePath"></select></label><label>序列<select id="mode"><option value="original">原始</option><option value="represented">展示</option></select></label>
 <button id="fit">适应视图</button><span id="meta" aria-live="polite"></span></nav>
 <div id="tracks"><article><strong>A 行</strong><label>样本<select id="sampleA"></select></label><label>样本支持的登记路径<select id="pathA"></select></label><p id="statsA"></p></article>
 <article><strong>B 行</strong><label>样本<select id="sampleB"></select></label><label>样本支持的登记路径<select id="pathB"></select></label><p id="statsB"></p></article></div>
-<p id="legend"></p><main><div id="canvas"></div><aside><h2 id="name">访问详情</h2><p id="info"></p><label id="vlabel" hidden>访问<select id="visit"></select></label><div id="tools"><button id="toggle" hidden></button></div><div id="details"></div></aside></main>
-<script>/* CYTOSCAPE */</script><script>/* COMPARE */</script><script>
+<p id="legend"></p><main><div id="canvas"></div><aside><h2 id="name">访问详情</h2><p id="info"></p><label id="vlabel" hidden>访问<select id="visit"></select></label><div id="tools"><button id="toggle" hidden></button><button id="focusBlock" hidden>聚焦区块</button></div><div id="details"></div></aside></main>
+<script>/* CYTOSCAPE */</script><script>/* COMPARE */</script><script>/* PROJECTION */</script><script>
 'use strict';
 const data=/* DATA */;
 const el=id=>document.getElementById(id), paths=data.paths, nodes=data.graph.nodes;
-const active=new Set(), byId=new Map(), xy=new Map(), positions=new Map();
+const expandedSupernodes=new Set(),expandedStates=new Set(),byId=new Map(),anchors=new Map(),positions=new Map();
+let projection=null,focusedPathId=null;
+const pathColors=new Map(Object.keys(paths).sort().map((p,i)=>[p,'hsl('+Math.round((i*137.508+200)%360)+',62%,40%)']));
 const tracks=['A','B'];
 const isCompare=()=>el('view').value==='compare';
 let focused=null, pairFocus=null;
@@ -48,7 +52,7 @@ tracks.forEach(selectPaths);
 el('title').textContent=data.graph.locus+' 重复结构';
 const visiblePaths=()=>Object.keys(paths).filter(p=>supported(p,el('sample').value));
 const pattern=n=>n.ordered_pattern.map(k=>k[0]).join('·');
-const label=n=>pattern(n)+' ×{'+n.observed_repeat_counts.join(',')+'}';
+
 function stateLabel(n,v){
   if(n.ordered_pattern[0][3]==='unknown')return '未解析';
   if(n.ordered_pattern[0][3]==='partial')return '部分单元';
@@ -68,14 +72,13 @@ for(const vs of Object.values(paths)){
     positions.set(v.supernode_id,bucket);
   }
 }
-const laneEnds=[];
-for(const n of Object.values(nodes).sort((a,b)=>b.path_count-a.path_count || a.id.localeCompare(b.id))){
-  const pos=positions.get(n.id).sort((a,b)=>a-b);
-  const x=pos[Math.floor(pos.length/2)]*6200;
-  let lane=laneEnds.findIndex(previous=>previous.every(value=>Math.abs(x-value)>185));
-  if(lane<0){lane=laneEnds.length;laneEnds.push([])}
-  laneEnds[lane].push(x);xy.set(n.id,{x,y:lane*68});
+for(const [sn,pos] of positions){pos.sort((a,b)=>a-b);anchors.set(sn,pos[Math.floor(pos.length/2)]*6200)}
+function updateRange(){
+  const keep=new Set(Array.from(el('range').selectedOptions,o=>o.value));
+  el('range').replaceChildren();
+  for(const p of visiblePaths()){option(el('range'),p,p);el('range').lastChild.selected=keep.has(p)}
 }
+updateRange();
 const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},minZoom:.009,maxZoom:5,
   style:[
     {selector:'node',style:{'label':'data(label)','width':120,'height':34,'shape':'round-rectangle','background-color':'#528a83','color':'#12343a','text-valign':'bottom','text-margin-y':2,'text-wrap':'wrap','font-size':12,'min-zoomed-font-size':6}},
@@ -87,52 +90,121 @@ const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},mi
     {selector:'node[flag="child"]',style:{'background-color':'#8ab1b7','shape':'rectangle','font-family':'monospace','width':130}},
     {selector:'edge',style:{'width':1,'curve-style':'bezier','target-arrow-shape':'triangle','line-color':'#b5c6c6','target-arrow-color':'#b5c6c6','opacity':.7}},
     {selector:'edge.correspondence',style:{'line-style':'dashed','width':2,'line-color':'#6b647b','target-arrow-shape':'none','opacity':0.9}},
-    {selector:'node.pair',style:{'text-valign':'center','color':'#fff','font-size':13,'text-max-width':175,'text-wrap':'wrap','height':55}},
-    {selector:'.a',style:{'line-color':'#127c9a','target-arrow-color':'#127c9a','background-color':'#127c9a','width':3,'z-index':5}},
-    {selector:'.b',style:{'line-color':'#bc6550','target-arrow-color':'#bc6550','background-color':'#bc6550','width':3,'z-index':5}},
-    {selector:'.a.b',style:{'line-color':'#74509b','target-arrow-color':'#74509b','background-color':'#74509b'}},
-    {selector:'node.a,node.b',style:{'width':178}},{selector:'.dim',style:{'opacity':.16}}
+    {selector:'node',style:{'background-color':'#ecf1f0','color':'#193640','border-color':'#8ba09f','border-width':1,'text-valign':'center','text-margin-y':0,'text-max-width':170,'text-wrap':'ellipsis','width':178,'height':46}},
+    {selector:'node.pair',style:{'text-wrap':'wrap','height':58}},
+    {selector:'node[view_kind="copy"]',style:{'width':134,'height':58,'font-size':11,'text-max-width':130,'text-wrap':'wrap'}},
+    {selector:'node[view_kind="state"]',style:{'width':202,'height':60}},
+    {selector:':parent',style:{'shape':'round-rectangle','padding':'13px','background-color':'#e3eeed','background-opacity':0.45,'text-valign':'top','font-weight':'bold','text-background-opacity':1,'text-background-color':'#f8faf9'}},
+    {selector:'node[flag="loss"]',style:{'border-width':3,'border-color':'#bf633d'}},
+    {selector:'edge.trace,edge.a,edge.b',style:{'line-color':'data(color)','target-arrow-color':'data(color)','width':2.2,'opacity':0.82}},
+    {selector:'edge.trace',style:{'source-endpoint':'data(outlet)','target-endpoint':'data(inlet)'}},
+    {selector:'.dim',style:{'opacity':0.12}},
+    {selector:'edge.onRoute',style:{'width':4,'opacity':1,'z-index':15}},
+    {selector:'node.onRoute',style:{'border-width':3,'border-color':'#203f51','z-index':10}}
+
   ]});
-function overview(){
-  const items=new Map(), used=visiblePaths(), mode=el('mode').value;
-  function add(entry){
-    if(!items.has(entry.data.id))items.set(entry.data.id,entry);
-    if(entry.data.flag==='loss')items.get(entry.data.id).data.flag='loss';
-  }
-  for(const p of used){
-    let previous=null;
-    for(const v of paths[p]){
-      const n=nodes[v.supernode_id],opened=active.has(v.visit_id),parent=xy.get(n.id);
-      const walk=v[mode+'_gfa_walk'];
-      for(let i=0;i<(opened?walk.length:1);i++){
-        const id=opened?'u:'+v.ordered_occurrence_ids[i]:n.id;
-        const changed=opened?v.original_variant_ids[i]!==v.represented_variant_ids[i]:v.loss_event_ids.length>0;
-        const flag=changed?'loss':opened?'child':n.ordered_pattern[0][3]==='unknown'?'opaque':n.structure_assessment==='ambiguous'?'ambiguous':n.structure_assessment==='not_assessed'?'unassessed':n.kind==='opaque'?'opaque':n.protected?'protected':'';
-        const position=opened?{x:parent.x+i*155,y:parent.y+57+65*n.member_visit_ids.filter(id=>active.has(id)).indexOf(v.visit_id)}:parent;
-        const text=opened?data.variants[v[mode+'_variant_ids'][i]]:label(n);
-        add({data:{id,label:text,flag,sn:n.id,visit:opened?v.visit_id:'',source_node_id:opened?walk[i]:null},position},p);
-        if(previous!==null)add({data:{id:'e:'+previous+'>'+id,source:previous,target:id}},p);
-        previous=id;
+function layoutOverview(items,graph){
+  // Dimensions include Cytoscape's compound padding and both container titles.
+  const boxes=[];
+  for(const block of graph.blocks.values()){
+    const sn=block.sn,leaves=[];
+    let width=210,height=70;
+    if(!expandedSupernodes.has(sn))leaves.push([summaryId(sn),0,35]);
+    else{
+      height=52;width=248;
+      for(const sid of block.state_ids){
+        const state=graph.states.get(sid);
+        if(!expandedStates.has(sid)){
+          leaves.push([sid,0,height+30]);height+=90;
+          continue;
+        }
+        height+=48;
+        for(const vid of state.member_visit_ids){
+          const v=byId.get(vid),n=v.ordered_occurrence_ids.length;
+          width=Math.max(width,n*162+90);
+          v.ordered_occurrence_ids.forEach((oid,i)=>leaves.push([copyId(vid,oid),(i-(n-1)/2)*162,height+30]));
+          height+=84;
+        }
+        height+=28;
       }
+      height+=18;
+    }
+    boxes.push({sn,x:anchors.get(sn),width,height,leaves});
+  }
+  // Interval packing, followed by the height of the tallest block in each lane.
+  boxes.sort((a,b)=>(a.x-a.width/2)-(b.x-b.width/2)||a.sn.localeCompare(b.sn));
+  const lanes=[];
+  for(const box of boxes){
+    let lane=lanes.find(l=>l.right+32<=box.x-box.width/2);
+    if(!lane){lane={height:0,boxes:[]};lanes.push(lane)}
+    lane.right=box.x+box.width/2;lane.height=Math.max(lane.height,box.height);lane.boxes.push(box);
+  }
+  let y=0;
+  for(const lane of lanes){
+    for(const box of lane.boxes)for(const [id,dx,dy] of box.leaves)items.get(id).position={x:box.x+dx,y:y+dy};
+    y+=lane.height+35;
+  }
+}
+function overview(){
+  const selected=Array.from(el('range').selectedOptions,o=>o.value);
+  projection=projectStateGraph(data,{pathIds:selected.length?selected:null,sample:el('sample').value,
+    mode:el('mode').value,expandedSupernodes,expandedStates});
+  const items=new Map(),mode=el('mode').value;
+  for(const d of projection.nodes.values()){
+    const state=projection.states.get(d.state_id),block=projection.blocks.get(d.sn),n=nodes[d.sn];
+    let caption=pattern(n),flag='';
+    if(d.view_kind==='copy'){
+      const motif=n.ordered_pattern[d.index%n.ordered_pattern.length][0];
+      const dna=d.dna.length>16?d.dna.slice(0,14)+'…':d.dna;
+      caption=d.visit_id+' · '+(d.index+1)+' '+motif+'\n'+dna;
+      if(mode==='represented' && d.changed)flag='loss';
+    }else if(state){
+      caption+=' ×'+state.repeat_count;
+      if(mode==='represented' && state.changed_visit_ids.length)flag='loss';
+    }else{
+      caption+=' ×{'+block.state_ids.map(id=>projection.states.get(id).repeat_count).join(',')+'}';
+      if(n.protected)flag='protected';
+    }
+    items.set(d.id,{data:{...d,label:caption,flag}});
+  }
+  layoutOverview(items,projection);
+  for(const e of projection.edges)items.set(e.id,{data:{...e,color:pathColors.get(e.path_id)},classes:'trace'});
+  apply(items);
+  const selector=el('tracePath');selector.replaceChildren();option(selector,'','无');
+  for(const p of projection.routes.keys())option(selector,p,p);
+  if(!projection.routes.has(focusedPathId))focusedPathId=null;
+  selector.value=focusedPathId||'';
+  highlight();
+  el('meta').textContent=projection.support.path_count+' 条登记路径 · '+projection.support.molecule_count+' 个独立分子';
+  el('legend').textContent='彩线按登记路径连接。点击区块展开次数状态，再点击状态查看各次访问的拷贝。';
+  if(focused)overviewDetail(focused,el('visit').value);
+}
+function highlight(){
+  const p=focusedPathId,ids=new Set();
+  if(p){
+    for(const v of projection.routes.get(p)||[])for(const id of v.display_node_ids){
+      ids.add(id);
+      for(let n=projection.nodes.get(id);n?.parent;n=projection.nodes.get(n.parent))ids.add(n.parent);
     }
   }
-  apply(items);
-  const sample=el('sample').value;
-  const support=selectionSupport(used.map(path=>({path,sample})),data.path_info,data.samples);
-  el('meta').textContent=used.length+' 条登记路径 · '+support.molecules+' 个独立分子';
-  el('legend').textContent='节点 ×{…} 为登记路径次数集合（含 REF）。点击节点可选择访问并在图内展开。';
-  if(focused)detail(focused,el('visit').value);
+  cy.batch(()=>cy.elements().forEach(e=>{
+    const on=!!p && (e.isEdge()?e.data('path_id')===p:ids.has(e.id()));
+    e.toggleClass('onRoute',on);e.toggleClass('dim',!!p && !on);
+  }));
 }
 function apply(items){
   cy.batch(()=>{
-    cy.elements().forEach(e=>{if(!items.has(e.id()))e.remove()});
-    for(const e of items.values()){
+    for(const collection of [cy.edges(),cy.nodes()])collection.filter(e=>!items.has(e.id())).remove();
+    // The projection inserts containers before their descendants. An edge always follows both endpoints.
+    const entries=[...items.values()];
+    for(const e of [...entries.filter(e=>!e.data.source),...entries.filter(e=>e.data.source)]){
       let item=cy.getElementById(e.data.id);
       if(item.empty())item=cy.add(e);
-      else {
-        if(e.position){item.position(e.position);item.data(e.data)}
-        item.classes(e.classes||'');
+      else{
+        const {id,parent,source,target,...mutable}=e.data;
+        item.data(mutable);item.classes(e.classes||'');
       }
+      if(e.position && item.isNode() && !e.data.view_kind?.endsWith('container'))item.position(e.position);
     }
   });
 }
@@ -144,6 +216,7 @@ function compare(){
   function add(e){items.set(e.data.id,e)}
   tracks.forEach((track,k)=>{
     const {path}=choices[k],info=data.path_info[path];
+    el('stats'+track).parentElement.style.borderColor=pathColors.get(path)||'#78918f';
     el('stats'+track).textContent=info?[
       support.perTrack[k].length+' 个独立分子',info.length+' bp',
       '实际改写 '+info.edited_bp+' bp（'+(info.fraction*100).toFixed(2)+'%）',
@@ -157,10 +230,10 @@ function compare(){
       const caption=[symbol+' ×'+v.repeat_count,status,v.loss_event_ids.length?'改写 '+v.loss_event_ids.length+' bp':''].filter(Boolean).join('\n');
       add({data:{id,track,visit:v.visit_id,sn:n.id,flag,label:caption},classes:'pair '+track.toLowerCase(),
            position:{x:cols[k][i],y:k*175}});
-      if(i)add({data:{id:JSON.stringify(['walk',track,i]),source:ids[k][i-1],target:id},classes:track.toLowerCase()});
+      if(i)add({data:{id:displayId('walk',track,path,i),source:ids[k][i-1],target:id,color:pathColors.get(path)},classes:track.toLowerCase()});
     });
   });
-  for(const [i,j] of pairs)add({data:{id:'correspondence:'+i+','+j,source:ids[0][i],target:ids[1][j]},classes:'correspondence'});
+  for(const [i,j] of pairs)add({data:{id:displayId('correspondence',ids[0][i],ids[1][j]),source:ids[0][i],target:ids[1][j]},classes:'correspondence'});
   apply(items);
   el('meta').textContent=support.paths+' 条登记路径 · '+support.molecules+' 个独立分子（并集）';
   const message=choices.some(c=>!c.path)?'请选择 A、B 两行的登记路径':
@@ -170,40 +243,32 @@ function compare(){
   if(pairFocus)detail(byId.get(pairFocus.visit).supernode_id,pairFocus.visit,pairFocus.track);
 }
 function resetDetails(){
-  focused=null;pairFocus=null;el('details').replaceChildren();el('vlabel').hidden=true;el('toggle').hidden=true;
+  focused=null;pairFocus=null;el('details').replaceChildren();el('vlabel').hidden=true;el('toggle').hidden=true;el('focusBlock').hidden=true;
   el('name').textContent='访问详情';el('info').textContent='点击图中的访问查看单元序列和 GFA 节点。';
 }
 function detail(id,preferred,track){
-  const n=nodes[id],select=el('visit');select.replaceChildren();el('details').replaceChildren();
-  let choice=byId.get(preferred);
-  if(track){
-    pairFocus={track,visit:preferred};
-    el('name').textContent=track+' 行 · '+choice.path_id+' · '+choice.visit_id;
-    el('vlabel').hidden=true;el('toggle').hidden=true;
-  }else{
-    focused=id;
-    const allowed=new Set(visiblePaths()),vs=n.member_visit_ids.map(k=>byId.get(k)).filter(v=>allowed.has(v.path_id));
-    if(!vs.length){resetDetails();return}
-    for(const v of vs)option(select,v.visit_id,v.visit_id+' ×'+v.repeat_count);
-    choice=vs.find(v=>v.visit_id===preferred)||vs[0];select.value=choice.visit_id;
-    el('name').textContent=label(n);el('vlabel').hidden=false;el('toggle').hidden=false;
-    el('toggle').textContent=active.has(choice.visit_id)?'收起这次访问':'展开这次访问';
-  }
+  const n=nodes[id],choice=byId.get(preferred);
+  pairFocus={track,visit:preferred};el('details').replaceChildren();
+  el('name').textContent=track+' 行 · '+choice.path_id+' · '+choice.visit_id;
+  el('vlabel').hidden=true;el('toggle').hidden=true;
   el('info').textContent=pattern(n)+' ×'+choice.repeat_count+' · 全体支持 '+n.path_count+' 条路径 / '+n.molecule_count+' 个分子 / '+n.visit_count+' 次访问';
+  unitDetails(n,choice,el('sample'+track).value);
+}
+function unitDetails(n,choice,sample,index=null){
   const info=document.createElement('p');
   info.textContent='边界 '+choice.boundary_assessment+' · 结构 '+choice.structure_assessment+' · 位置 '+choice.position_assessment+' · 内部单元对应 '+choice.homology_assessment;
   el('details').append(info);
-  const sample=el(track?'sample'+track:'sample').value;
   const keys=selectionSupport([{path:choice.path_id,sample}],data.path_info,data.samples).perTrack[0];
   const evidence=document.createElement('details'),heading=document.createElement('summary'),members=document.createElement('pre');
   heading.textContent='来源分子 · '+(sample||'全部样本')+'（'+keys.length+'）';members.textContent=keys.join('\n')||'REF 无分子支持';
   evidence.append(heading,members);el('details').append(evidence);
   const ol=document.createElement('ol');
   choice.ordered_occurrence_ids.forEach((oid,i)=>{
+    if(index!==null && i!==index)return;
     const li=document.createElement('li'),code=document.createElement('code'),ori=data.variants[choice.original_variant_ids[i]],rep=data.variants[choice.represented_variant_ids[i]];
     const unit=n.ordered_pattern[i%n.ordered_pattern.length];
     const mode=el('mode').value;
-    code.textContent=oid+' '+unit[0]+' '+unit[4]+' '+unit[3]+'\n'+(mode==='original'?'当前 · 原始':'原始')+' '+ori+' · S'+choice.original_gfa_walk[i]+'\n'+(mode==='represented'?'当前 · 展示':'展示')+' '+rep+' · S'+choice.represented_gfa_walk[i];
+    li.value=i+1;code.textContent=oid+' '+unit[0]+' '+unit[4]+' '+unit[3]+'\n'+(mode==='original'?'当前 · 原始':'原始')+' '+ori+' · S'+choice.original_gfa_walk[i]+'\n'+(mode==='represented'?'当前 · 展示':'展示')+' '+rep+' · S'+choice.represented_gfa_walk[i];
     code.style.whiteSpace='pre-wrap';li.append(code);
     for(const eid of choice.loss_event_ids){
       const e=data.losses[eid];if(e.occurrence_id!==oid)continue;
@@ -213,10 +278,44 @@ function detail(id,preferred,track){
   });
   el('details').append(ol);
 }
-cy.on('tap','node',e=>detail(e.target.data('sn'),e.target.data('visit'),e.target.data('track')));
+function overviewDetail(id,preferred){
+  const e=cy.getElementById(id);if(!e.length){resetDetails();return}
+  focused=id;el('vlabel').hidden=true;el('toggle').hidden=true;el('focusBlock').hidden=true;el('details').replaceChildren();
+  const d=e.data(),sample=el('sample').value;
+  if(e.isEdge()){
+    const p=d.path_id,keys=selectionSupport([{path:p,sample}],data.path_info,data.samples).perTrack[0];
+    el('name').textContent=p+' · 路径连线 '+(d.step_index+1);
+    el('info').textContent=d.from_visit_id+' → '+d.to_visit_id+' · '+keys.length+' 个独立分子';
+    const pre=document.createElement('pre');pre.textContent=keys.join('\n');el('details').append(pre);return;
+  }
+  const n=nodes[d.sn],s=projection.states.get(d.state_id),group=s||projection.blocks.get(d.sn);
+  el('focusBlock').hidden=false;
+  if(d.view_kind==='copy'){
+    el('name').textContent=d.visit_id+' · 第 '+(d.index+1)+' 个单元';
+    el('info').textContent=d.path_id+' · '+d.occurrence_id;
+    unitDetails(n,byId.get(d.visit_id),sample,d.index);return;
+  }
+  el('name').textContent=s?pattern(n)+' ×'+s.repeat_count:pattern(n)+' · 结构区块';
+  const counts=projection.blocks.get(d.sn).state_ids.map(id=>projection.states.get(id).repeat_count);
+  el('info').textContent=(s?'原始序列 '+s.original_sequence_count+' 型 · 展示序列 '+s.represented_sequence_count+' 型 · '+s.changed_visit_ids.length+' 次访问含改写':
+    '当前登记次数集合 {'+counts.join(',')+'}')+' · '+group.visit_count+' 次访问 / '+group.path_count+' 条路径 / '+group.molecule_count+' 个独立分子';
+  const btn=el('toggle');btn.hidden=false;
+  btn.textContent=s?(expandedStates.has(s.state_id)?'收起该状态的拷贝':'展开该状态的拷贝'):
+    (expandedSupernodes.has(d.sn)?'收起结构状态':'展开结构状态');
+  const select=el('visit');select.replaceChildren();
+  for(const vid of group.member_visit_ids)option(select,vid,vid+' ×'+byId.get(vid).repeat_count);
+  select.value=group.member_visit_ids.includes(preferred)?preferred:group.member_visit_ids[0];
+  el('vlabel').hidden=false;unitDetails(n,byId.get(select.value),sample);
+}
+cy.on('tap','node,edge',event=>{
+  const e=event.target;
+  if(isCompare()){if(e.isNode())detail(e.data('sn'),e.data('visit'),e.data('track'));return}
+  if(e.isEdge()){focusedPathId=e.data('path_id');el('tracePath').value=focusedPathId;highlight()}
+  overviewDetail(e.id());
+});
 function refresh(){if(isCompare())compare();else overview()}
 function startView(){
-  resetDetails();el('tracks').hidden=!isCompare();el('globalSample').hidden=isCompare();
+  resetDetails();el('tracks').hidden=!isCompare();el('globalSample').hidden=isCompare();el('scope').hidden=isCompare();el('traceChoice').hidden=isCompare();
   refresh();cy.resize();
   if(isCompare()){
     const left=cy.nodes().length?Math.min(...cy.nodes().map(n=>n.position('x'))):0;
@@ -227,15 +326,27 @@ for(const track of tracks){
   el('sample'+track).onchange=()=>{selectPaths(track);startView()};
   el('path'+track).onchange=startView;
 }
-el('view').onchange=startView;el('sample').onchange=startView;
+el('view').onchange=startView;el('sample').onchange=()=>{updateRange();startView()};
+el('range').onchange=startView;
+el('allPaths').onclick=()=>{el('range').selectedIndex=-1;el('scope').open=false;startView()};
+el('tracePath').onchange=()=>{focusedPathId=el('tracePath').value||null;highlight()};
 el('mode').onchange=()=>{
   const aside=document.querySelector('aside'),scroll=aside.scrollTop,opened=el('details').querySelector('details')?.open;
   refresh();
   const evidence=el('details').querySelector('details');if(evidence)evidence.open=!!opened;
   aside.scrollTop=scroll;
 };
-el('visit').onchange=()=>detail(focused,el('visit').value);
-el('toggle').onclick=()=>{const v=el('visit').value;if(active.has(v))active.delete(v);else active.add(v);refresh()};
+el('visit').onchange=()=>overviewDetail(focused,el('visit').value);
+el('toggle').onclick=()=>{
+  const d=cy.getElementById(focused).data(),s=projection.states.get(d.state_id);
+  if(s){
+    if(expandedStates.delete(s.state_id))focused=s.state_id;
+    else{expandedStates.add(s.state_id);focused=stateContainerId(d.sn,s.repeat_count)}
+  }else if(expandedSupernodes.delete(d.sn))focused=summaryId(d.sn);
+  else{expandedSupernodes.add(d.sn);focused=containerId(d.sn)}
+  overview();
+};
+el('focusBlock').onclick=()=>{const e=cy.getElementById(focused);if(e.length)cy.fit(e.union(e.descendants()),35)};
 el('fit').onclick=()=>{if(cy.elements().length)cy.fit(cy.elements(),30)};
 startView();
 </script></html>
