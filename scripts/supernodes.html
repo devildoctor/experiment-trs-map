@@ -35,7 +35,7 @@ function visiblePaths(){
   return el('only').checked && selected.length?all.filter(p=>selected.includes(p)):all;
 }
 const pattern=n=>n.ordered_pattern.map(k=>k[0]).join('·');
-const label=n=>pattern(n)+(n.observed_repeat_counts.some(k=>k>1)?' ×{'+n.observed_repeat_counts.join(',')+'}':'')+(n.lossy_visit_ids?' •':'');
+const label=n=>pattern(n)+(n.observed_repeat_counts.some(k=>k>1)?' ×{'+n.observed_repeat_counts.join(',')+'}':'')+'\n'+n.path_count+' P · '+n.molecule_count+' mol';
 for(const vs of Object.values(paths)){
   const total=vs.at(-1).original_interval[1];
   for(const v of vs){
@@ -55,8 +55,10 @@ for(const n of Object.values(nodes).sort((a,b)=>b.path_count-a.path_count || a.i
 }
 const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},minZoom:.009,maxZoom:5,
   style:[
-    {selector:'node',style:{'label':'data(label)','width':120,'height':34,'shape':'round-rectangle','background-color':'#528a83','color':'#12343a','text-valign':'bottom','text-margin-y':2,'font-size':12,'min-zoomed-font-size':6}},
+    {selector:'node',style:{'label':'data(label)','width':120,'height':34,'shape':'round-rectangle','background-color':'#528a83','color':'#12343a','text-valign':'bottom','text-margin-y':2,'text-wrap':'wrap','font-size':12,'min-zoomed-font-size':6}},
     {selector:'node[flag="opaque"]',style:{'background-color':'#ad9470','shape':'diamond'}},
+    {selector:'node[flag="ambiguous"]',style:{'background-color':'#a190bc','shape':'hexagon'}},
+    {selector:'node[flag="unassessed"]',style:{'background-color':'#a4aeb2','shape':'diamond'}},
     {selector:'node[flag="protected"]',style:{'border-width':2,'border-color':'#81515e'}},
     {selector:'node[flag="loss"]',style:{'border-width':4,'border-color':'#cb5a2b'}},
     {selector:'node[flag="child"]',style:{'background-color':'#8ab1b7','shape':'rectangle','font-family':'monospace','width':130}},
@@ -68,9 +70,18 @@ const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},mi
   ]});
 function refresh(){
   const items=new Map(), used=visiblePaths(), selected=chosen(), mode=el('mode').value;
+  const compact=el('only').checked && selected.length>0, layout=compact?new Map():xy;
+  if(compact){
+    const nmax=Math.max(...used.map(p=>paths[p].length));
+    used.forEach((p,row)=>paths[p].forEach((v,i)=>{
+      if(layout.has(v.supernode_id)){layout.get(v.supernode_id).y=60}
+      else layout.set(v.supernode_id,{x:i*170*nmax/paths[p].length,y:row*120});
+    }));
+  }
   function add(entry,p){
     const id=entry.data.id;
     if(!items.has(id)){entry.tags=new Set();items.set(id,entry)}
+    if(entry.data.flag==='loss')items.get(id).data.flag='loss';
     const tags=items.get(id).tags;
     if(p===el('pathA').value)tags.add('a');
     if(p===el('pathB').value)tags.add('b');
@@ -78,13 +89,13 @@ function refresh(){
   for(const p of used){
     let previous=null;
     for(const v of paths[p]){
-      const n=nodes[v.supernode_id],opened=active.has(v.visit_id),parent=xy.get(n.id);
+      const n=nodes[v.supernode_id],opened=active.has(v.visit_id),parent=layout.get(n.id);
       const walk=v[mode+'_gfa_walk'];
       for(let i=0;i<(opened?walk.length:1);i++){
         const id=opened?'u:'+v.ordered_occurrence_ids[i]:n.id;
-        const changed=opened?v.original_variant_ids[i]!==v.represented_variant_ids[i]:!!n.lossy_visit_ids;
-        const flag=changed?'loss':opened?'child':n.kind==='opaque'?'opaque':n.protected?'protected':'';
-        const position=opened?{x:parent.x+i*155,y:parent.y+37}:parent;
+        const changed=opened?v.original_variant_ids[i]!==v.represented_variant_ids[i]:v.loss_event_ids.length>0;
+        const flag=changed?'loss':opened?'child':n.ordered_pattern[0][3]==='unknown'?'opaque':n.structure_assessment==='ambiguous'?'ambiguous':n.structure_assessment==='not_assessed'?'unassessed':n.kind==='opaque'?'opaque':n.protected?'protected':'';
+        const position=opened?{x:parent.x+i*155,y:parent.y+57+65*n.member_visit_ids.filter(id=>active.has(id)).indexOf(v.visit_id)}:parent;
         const text=opened?data.variants[v[mode+'_variant_ids'][i]]:label(n);
         add({data:{id,label:text,flag,sn:n.id,visit:opened?v.visit_id:'',source_node_id:opened?walk[i]:null},position},p);
         if(previous!==null)add({data:{id:'e:'+previous+'>'+id,source:previous,target:id}},p);
@@ -97,7 +108,10 @@ function refresh(){
     for(const e of items.values()){
       let item=cy.getElementById(e.data.id);
       if(item.empty())item=cy.add({data:e.data,position:e.position});
-      else if(!e.data.source)item.data({label:e.data.label,flag:e.data.flag,source_node_id:e.data.source_node_id});
+      else if(!e.data.source){
+        item.data({label:e.data.label,flag:e.data.flag,source_node_id:e.data.source_node_id});
+        item.position(e.position);
+      }
       item.classes([...e.tags,...(!e.tags.size && selected.length?['dim']:[])].join(' '));
     }
   });
@@ -134,8 +148,9 @@ function detail(id,preferred){
   el('details').append(ol);
 }
 cy.on('tap','node',e=>detail(e.target.data('sn'),e.target.data('visit')));
-el('sample').onchange=()=>{refreshSelectors();refresh()};
-for(const id of ['pathA','pathB','only','mode'])el(id).onchange=refresh;
+el('sample').onchange=()=>{refreshSelectors();refresh();cy.fit(cy.elements(),30)};
+for(const id of ['pathA','pathB','only'])el(id).onchange=()=>{refresh();if(el('only').checked)cy.fit(cy.elements(),30)};
+el('mode').onchange=refresh;
 el('visit').onchange=()=>detail(focused,el('visit').value);
 el('toggle').onclick=()=>{const v=el('visit').value;if(active.has(v))active.delete(v);else active.add(v);refresh()};
 el('fit').onclick=()=>cy.fit(cy.elements(),30);

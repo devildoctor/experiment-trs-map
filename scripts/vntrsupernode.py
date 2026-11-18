@@ -73,7 +73,7 @@ def partner_options(query, reference):
 
 def align_regions(blocks, ref, path, outer_certain):
     # Align protected landmarks first; repeated, ambiguously placed barriers
-    # leave adjacent intervals path-local. Within an anchored interval, a novel
+    # constrain the search only where correspondence is unique. A novel
     # insertion is shareable only at a unique gap with the same ordered context.
     key = lambda b:(b['pattern'], b['barrier'], b['kind']=='opaque')
     def landmarks(bs):
@@ -139,7 +139,7 @@ def make_structure(records,tokens,audits,model,model_hash,policy,policy_hash):
             node_id = 'SN_'+digest
             visit_id = f'{p}:v{index}'
             n = nodes.setdefault(node_id,dict(id=node_id,region_id=region,ordered_pattern=block['pattern'],
-                kind=block['kind'],entry_port=node_id+':L',exit_port=node_id+':R',protected=block['barrier'],
+                kind=block['kind'],structure_assessment=structure,boundary_assessment=boundary,entry_port=node_id+':L',exit_port=node_id+':R',protected=block['barrier'],
                 member_visit_ids=[],observed_repeat_counts=set(),path_ids=set()))
             if block['kind']=='run': n['kind']='run'
             n['member_visit_ids'].append(visit_id)
@@ -164,5 +164,6 @@ def make_structure(records,tokens,audits,model,model_hash,policy,policy_hash):
         n['observed_repeat_counts']=sorted(n['observed_repeat_counts'])
     edges=[dict(source=a,target=b,path_ids=sorted(set(ps)),path_count=len(set(ps)),
                 visit_count=len(ps),molecule_count=support(set(ps))) for (a,b),ps in sorted(edge_members.items())]
-    return dict(nodes=nodes,edges=edges,locus=model['locus'],schema_version=1),visits
+    return dict(nodes=nodes,edges=edges,locus=model['locus'],schema_version=1,
+                pattern_fields=['motif','orientation','phase','status','role']),visits
 

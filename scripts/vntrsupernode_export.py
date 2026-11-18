@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from vntrdisplay_export import dump,table
-from vntrlocal import assign_slots
+from vntrlocal import VERSION as LOCAL_VERSION,assign_slots
 from vntrlocal_export import literal_graph,seq_id
 from vntrpathgraph import validate_gfa,write_gfa
 from vntrpathstructure import annotate_paths,restore_original,unit_key
@@ -158,7 +158,7 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
         graphs[mode]=g
         seq={p:''.join(t['exact_bases'] for t in row) for p,row in ts.items()}
         sequences[mode]=seq
-        write_gfa(out/(locus.name+'.'+mode+'.gfa'),g,records,'supernodes_v1_'+mode,seq,ledger if mode=='represented' else [])
+        write_gfa(out/(locus.name+'.'+mode+'.gfa'),g,records,(LOCAL_VERSION if mode=='original' else 'supernodes_v1')+'_'+mode,seq,ledger if mode=='represented' else [])
         (out/('paths.'+mode+'.fa')).write_text(''.join('>'+p+'\n'+s+'\n' for p,s in seq.items()),encoding='ascii')
         for p,vs in visits.items():
             for v in vs:

@@ -174,7 +174,7 @@ def segment_hmm(task,return_details=False,assess_structure=False,**unused):
         tokens.append(t)
     assert ''.join(t['exact_bases'] for t in tokens)==sequence
     audit=dict(source=VERSION,decoder='single_viterbi',viterbi_score=score,
-               parameters=PARAMETERS,annotation_ambiguity=False,
+               parameters=PARAMETERS,annotation_ambiguity=False,structure_assessment='not_assessed',
                ambiguity_scope='not_enumerated_single_trace',alternative=[],
                metrics=base_metrics(tokens))
     if assess_structure:
@@ -189,6 +189,7 @@ def segment_hmm(task,return_details=False,assess_structure=False,**unused):
             t['structure_assessment'] = 'invariant_within_model' if invariant else 'ambiguous'
             t['annotation_ambiguity'] = not invariant
         audit.update(ambiguity_scope='optimal_boundary_and_motif_projections',
+                     structure_assessment='ambiguous' if any(t['annotation_ambiguity'] for t in tokens) else 'invariant_within_model',
                      tie_tolerance=1e-10, complete_motif_count_range=count_range,
                      annotation_ambiguity=any(t['annotation_ambiguity'] for t in tokens),
                      alternative_base_projections=[

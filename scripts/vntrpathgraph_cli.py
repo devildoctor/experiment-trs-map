@@ -181,6 +181,10 @@ def export_graphs(destination, locus, records, excluded, metadata, preview_limit
     return summary
 
 
+def structure_budget(schema,fraction,max_bp):
+    return fraction if schema in (2,3,4) else max_bp
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     inputs=p.add_mutually_exclusive_group(required=True)
@@ -282,7 +286,7 @@ def main():
         for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         summary=export_structure(destination,locus,records,excluded,metadata,args.locus_model,args.structure_policy,
-            args.loss_budget if structure_policy.get('schema_version') in (2,3,4) else args.max_loss_bp,args.preview_paths,args.dot,rows if args.structures_json else None,
+            structure_budget(structure_policy.get('schema_version'),args.loss_budget,args.max_loss_bp),args.preview_paths,args.dot,rows if args.structures_json else None,
             payload.get('audit') if args.structures_json else None)
     else:
         summary=export_graphs(destination,args.locus,records,excluded,metadata,args.preview_paths,policy,args.loss_budget,args.dot)
