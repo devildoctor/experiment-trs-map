@@ -53,6 +53,26 @@ class ExportTests(unittest.TestCase):
             with (out/'D1S80.original.gfa').open('a') as f:f.write('# mismatch\n')
             with self.assertRaisesRegex(ValueError,'hash mismatch'): validate_bundle(out)
 
+    def test_offline_projection_is_embedded_and_preserves_source_files(self):
+        from vntrsupernode_viewer import write_viewer
+        _,records=fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)
+            export(out,records)
+            manifest=json.loads((out/'provenance.json').read_bytes())
+            load=lambda name:json.loads((out/name).read_bytes())
+            visits={r['path']:r['visits'] for r in map(json.loads,(out/'path_visits.jsonl').read_bytes().splitlines())}
+            rows=[dict(path=r['id'],role=r['role'],length=len(r['sequence']),edited_bp=0,
+                       fraction=0,represented_is_observed_whole_sequence=True) for r in records]
+            write_viewer(out,load('display_graph.json'),visits,load('sequence_variants.json'),records,
+                         {},load('supernode_policy.json'),rows)
+            html=(out/'D1S80.supernodes.html').read_text(encoding='utf8')
+            self.assertIn((ROOT/'scripts/supernode_projection.js').read_text(encoding='utf8'),html)
+            self.assertNotIn('/* PROJECTION */',html)
+            self.assertNotRegex(html,r'<script[^>]+src=')
+            for name,h in manifest['files'].items():
+                self.assertEqual(sha256((out/name).read_bytes()).hexdigest(),h,name)
+
     def test_reference_only_and_iupac(self):
         _,records=fixture()
         with tempfile.TemporaryDirectory() as temp:
