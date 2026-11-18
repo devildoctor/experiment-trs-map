@@ -3,6 +3,8 @@
   const change=(id,value)=>{el(id).value=value;el(id).dispatchEvent(new Event('change'))};
   const options=id=>Array.from(el(id).options,o=>o.value);
   const real=!!paths.P0188, sample=Object.keys(data.samples.P0002)[0];
+  check(el('view').value==='overview' && el('tracks').hidden && !el('globalSample').hidden &&
+    cy.nodes().length===Object.keys(nodes).length,'initial global overview');
   change('view','compare');
   check(el('legend').textContent.includes('请选择'),'missing path guidance');
   change('sampleA',real?'LCL5':sample);change('pathA','P0002');
@@ -65,7 +67,7 @@
   el('toggle').click();check(cy.nodes().some(n=>n.data('visit')===moduleVisit.visit_id),'overview inline expansion');
   el('toggle').click();
   check(!performance.getEntriesByType('resource').some(r=>/^https?:/.test(r.name)),'offline');
-  return {paths:Object.keys(paths).length,cytoscape:cytoscape.version,same_path:sameSummary,
+  return {initial_view:'overview',paths:Object.keys(paths).length,cytoscape:cytoscape.version,same_path:sameSummary,
     module_visit:moduleVisit.visit_id,ordered_occurrences:moduleVisit.ordered_occurrence_ids.length,
     loss_visit:lossVisit,dual_walks:true,stable_viewport:true,overview_expand_collapse:true,offline:true};
 })()
