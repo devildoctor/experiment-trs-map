@@ -5,6 +5,19 @@ from itertools import combinations
 from vntrcore import edit_distance
 
 
+def require_original_model(model):
+    if 'efficient_motif_selection' in model:
+        raise ValueError('Expected the original locus model; this model already contains a motif selection')
+
+
+def effective_model(full, choice):
+    """Construct the model used for reannotation, preserving terminal templates."""
+    selected = set(choice['selected_ids'])
+    return dict(full, motifs=[m for m in full['motifs'] if m['id'] in selected],
+                version=full['version']+'.efficient-q'+str(choice['q']),
+                efficient_motif_selection=choice)
+
+
 def select_motifs(model,tokens,q=.1):
     """Enumerate the same objective/constraints as vamos effMotifILP.py.
 

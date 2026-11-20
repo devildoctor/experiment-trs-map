@@ -9,7 +9,7 @@ from vntrlocal import classify,assign_slots,path_view,topology,plan_edits
 from vntrlocal_export import export_budget
 from vntrdisplay_export import dump,table
 from vntrpathstructure import annotate_paths
-from vntreffmotifs import select_motifs
+from vntreffmotifs import effective_model,require_original_model,select_motifs
 from vntrfamilies import select_families,apply_families
 from vntrpartition import repeat_type,str_policy_path
 
@@ -23,9 +23,13 @@ def annotate(records,model_path,locus):
     return model,model_hash,features,tokens,slots
 
 
-def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True,supernode_policy=None):
-    out.mkdir(parents=True,exist_ok=False);start=time.monotonic()
+def run(input_path,model_path,out,q=None,fraction=.03,reference=None,render=True,supernode_policy=None):
+    start=time.monotonic()
     records=json.loads(input_path.read_text());original_model=json.loads(model_path.read_text())
+    require_original_model(original_model)
+    if supernode_policy is not None and q is not None and not 0 <= q <= 1:
+        raise ValueError('q must be in [0,1]')
+    out.mkdir(parents=True,exist_ok=False)
     locus=Locus(original_model['locus'],original_model['chrom'],original_model['start'],original_model['end'],(),boundary_status=original_model['boundary_status'])
     for r in records:r.setdefault('source_path_id',r['id'])
     if not any(r.get('role')=='reference' for r in records):
@@ -40,7 +44,8 @@ def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True,s
     if supernode_policy is not None:
         if kind!='VNTR': raise ValueError('Supernode policy requires a VNTR locus')
         from vntrsupernode_export import export_supernodes
-        return export_supernodes(out,locus,records,model_path,supernode_policy,render,input_path)
+        return export_supernodes(out,locus,records,model_path,supernode_policy,render,input_path,q=q)
+    if q is None: q=.1
     processing=dict(repeat_type=kind,decoder='seed_dp' if kind=='STR' else 'hmm_single',
         hmm_skip=kind=='VNTR',efficient_dictionary=kind=='VNTR',family_display=kind=='VNTR',
         q=q if kind=='VNTR' else None,loss_fraction=fraction if kind=='VNTR' else 0)
@@ -66,9 +71,7 @@ def run(input_path,model_path,out,q=.1,fraction=.03,reference=None,render=True,s
     full,full_hash,features,tokens,slots=annotate(records,model_path,locus)
     dump(out/'full_dictionary_annotations.json',dict(features=features,tokens=tokens,slots=slots))
     choice=select_motifs(full,tokens,q);dump(out/'dictionary_selection.json',choice)
-    effective=deepcopy(full);effective['motifs']=[m for m in full['motifs'] if m['id'] in choice['selected_ids']]
-    effective['version']=full['version']+'.efficient-q'+str(q)
-    effective['efficient_motif_selection']=choice
+    effective=effective_model(full,choice)
     effective_path=out/'locus_model.efficient.json';dump(effective_path,effective)
     print('DICTIONARY',locus.name,json.dumps(choice,sort_keys=True),flush=True)
     def base_builder(ts,ss):
@@ -122,10 +125,12 @@ def main():
     parser.add_argument('--q',type=float);parser.add_argument('--loss-fraction',type=float)
     parser.add_argument('--supernode-policy',type=Path)
     parser.add_argument('--no-render',action='store_true');args=parser.parse_args()
-    if args.supernode_policy and (args.q is not None or args.loss_fraction is not None):
-        parser.error('--supernode-policy supplies the dictionary and budget')
-    run(args.input,args.model,args.out,.1 if args.q is None else args.q,
-        .03 if args.loss_fraction is None else args.loss_fraction,args.reference,not args.no_render,args.supernode_policy)
+    if args.supernode_policy and args.loss_fraction is not None:
+        parser.error('Supernode loss budget comes from --supernode-policy')
+    if args.supernode_policy and args.q is not None and not 0 <= args.q <= 1:
+        parser.error('q must be in [0,1]')
+    run(args.input,args.model,args.out,args.q,.03 if args.loss_fraction is None else args.loss_fraction,
+        args.reference,not args.no_render,args.supernode_policy)
 
 
 if __name__=='__main__':main()

@@ -1,8 +1,11 @@
 import json
+import io
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stdout,redirect_stderr
+from dataclasses import asdict
 from hashlib import sha256
 from pathlib import Path
 
@@ -35,6 +38,78 @@ def export(folder,records):
 
 
 class ExportTests(unittest.TestCase):
+    def test_dictionary_entry_points(self):
+        from run_efficient_family import main as family_cli,run
+        from vntrpathgraph_cli import main as graph_cli
+        from vntrflankalign import build_context,VERSION
+        from vntrgraph import IndexedFastaReference,read_catalog
+        policy=ROOT/'catalogs/D1S80.supernodes.v1.json'
+        m,_=fixture()
+        a,b=[v['sequence'] for v in m['motifs'][:2]]
+        ref=a*8
+        obs=a*7+b
+        with tempfile.TemporaryDirectory() as td,redirect_stdout(io.StringIO()):
+            root=Path(td)
+            fasta=root/'ref.fa'
+            fasta.write_bytes(('>chr1\n'+ref+'\n').encode())
+            (root/'ref.fa.fai').write_text(f'chr1\t{len(ref)}\t6\t{len(ref)}\t{len(ref)+1}\n')
+            catalog=root/'loci.bed'
+            catalog.write_text(f'chr1\t0\t{len(ref)}\tID=D1S80;BOUNDARY=confirmed\n')
+            locus=read_catalog(catalog)[0]
+            model=root/'model.json'
+            model.write_text(json.dumps(dict(m,chrom=locus.chrom,start=0,end=len(ref))))
+            with IndexedFastaReference(fasta) as reader:
+                boundary_hash=build_context(locus,reader).model_hash
+            interval=dict(qstart=0,qend=len(obs))
+            frag=dict(interval,id='f',sequence=obs,core_status='success',core_ambiguous=False,
+                      boundary_status='confirmed',boundary_model_sha256=boundary_hash,extraction_version=VERSION,
+                      core_anchor_evidence=dict(complete=True,status='success',representative=interval,pairs=[interval]))
+            payload=root/'structures.json'
+            payload.write_text(json.dumps(dict(locus=asdict(locus),audit=dict(boundary_model_sha256=boundary_hash),
+                rows=[dict(id='r',read_id='r',sample='sample',platform='HiFi',records=[],fragments=[frag])])))
+            graph_args=['graph','--structures-json',str(payload),'--graph-mode','structure','--locus-model',
+                        str(model),'--locus','D1S80','--reference',str(fasta),'--catalog',str(catalog)]
+            for q in (None,0,0.2):
+                with self.subTest(q=q):
+                    dest=root/str(q)
+                    g=dest/'graph'/'D1S80'
+                    opts=['--supernode-policy',str(policy)]+([] if q is None else ['--q',str(q)])
+                    with patch.object(sys,'argv',graph_args+['--out',str(g.parent)]+opts):
+                        graph_cli()
+                    members=g/'source_members.json'
+                    with patch.object(sys,'argv',['family','--input',str(members),'--model',str(model),
+                                                  '--out',str(dest/'cli'),'--no-render']+opts):
+                        family_cli()
+                    run(members,model,dest/'api',q=q,supernode_policy=policy,render=False)
+                    prov=json.loads((g/'provenance.json').read_bytes())
+                    self.assertEqual(prov['dictionary_q'],q)
+                    self.assertEqual(prov['dictionary'],'full' if q is None else 'effective')
+                    names=['display_graph.json','path_visits.jsonl','annotation_audit.json']
+                    if q is not None:
+                        names+=['dictionary_selection.json','locus_model.efficient.json']
+                        selected=json.loads((g/names[-2]).read_bytes())['selected_ids']
+                        self.assertIn('U01',selected)
+                        self.assertEqual('U02' in selected,q==0)
+                    for name in names:
+                        content=(g/name).read_bytes()
+                        for other in ('cli','api'):
+                            self.assertEqual(content,(dest/other/name).read_bytes())
+            for args,cli in [(graph_args+['--out',str(root/'bad'),'--q','0.2'],graph_cli),
+                             (graph_args+['--out',str(root/'bad')]+opts+['--q','1.1'],graph_cli),
+                             (['family','--input',str(members),'--model',str(model),'--out',
+                               str(root/'bad')]+opts+['--q','-0.1'],family_cli)]:
+                with patch.object(sys,'argv',args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit) as err:
+                    cli()
+                self.assertEqual(err.exception.code,2)
+            with self.assertRaisesRegex(ValueError,'original locus model'):
+                run(members,g/'locus_model.efficient.json',root/'again',supernode_policy=policy)
+            with self.assertRaisesRegex(ValueError,'q must be'):
+                run(members,model,root/'outside',supernode_policy=policy,q=1.01)
+            changed=dict(prov,dictionary_q=0.9)
+            (g/'provenance.json').write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError,'dictionary selection'):
+                validate_bundle(g)
+
     def test_bundle_and_hash_binding(self):
         _,records=fixture()
         with tempfile.TemporaryDirectory() as temp:

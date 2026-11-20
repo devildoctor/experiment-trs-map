@@ -198,10 +198,14 @@ def main():
     p.add_argument('--graph-mode',choices=['sequence','structure'],default='sequence')
     p.add_argument('--locus-model',type=Path);p.add_argument('--structure-policy',type=Path)
     p.add_argument('--supernode-policy',type=Path)
+    p.add_argument('--q',type=float,help='Select an effective motif dictionary for supernode annotation')
     p.add_argument('--max-loss-bp',type=int,default=0,choices=[0,1,2])
     p.add_argument('--dot',default='dot')
     p.add_argument('--previous-members',type=Path,help='Optional previous source_members.json for old-name mapping')
     args=p.parse_args()
+    if args.q is not None:
+        if not args.supernode_policy: p.error('--q requires --supernode-policy')
+        if not 0 <= args.q <= 1: p.error('q must be in [0,1]')
     if args.preview_paths<0 or not 0<=args.loss_budget<=1:p.error('Invalid limits')
     if not args.reference or not args.catalog:p.error('B2 needs --reference and --catalog, including imports')
     from vntrflankalign import build_context
@@ -278,7 +282,7 @@ def main():
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
     if args.supernode_policy:
         from vntrsupernode_export import export_supernodes
-        summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy)
+        summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy,q=args.q)
         print(json.dumps(summary),flush=True)
         return
     if args.graph_mode=='structure':

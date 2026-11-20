@@ -1,4 +1,4 @@
-"""Full-dictionary supernode bundle, on-disk validation, and provenance."""
+"""Supernode bundle, on-disk validation, and annotation model provenance."""
 from collections import Counter,defaultdict
 from fractions import Fraction
 from hashlib import sha256
@@ -9,6 +9,7 @@ import subprocess
 import time
 
 from vntrdisplay_export import dump,table
+from vntreffmotifs import effective_model,require_original_model,select_motifs
 from vntrlocal import VERSION as LOCAL_VERSION,assign_slots
 from vntrlocal_export import literal_graph,seq_id
 from vntrpathgraph import validate_gfa,write_gfa
@@ -33,9 +34,11 @@ def jsonlines(path,rows):
             f.write(json.dumps(row,ensure_ascii=False,separators=(',',':'))+'\n')
 
 
-def load_policy(path):
+def load_policy(path, *, dictionary='full'):
     policy=read(path)
-    rules = dict(policy_id='structure-supernode-v1',annotation_dictionary='full',
+    if 'q' in policy or 'dictionary_q' in policy:
+        raise ValueError('Supply q as an argument, not a policy field')
+    rules = dict(policy_id='structure-supernode-v1',annotation_dictionary=dictionary,
                  loss_objective='expanded_literal_N_plus_E',allowed_operations=['S'],
                  allow_cross_motif_edits=False,require_assessed_structure_for_loss=True)
     if any(policy.get(k)!=v for k,v in rules.items()):
@@ -69,6 +72,40 @@ def verify_support(row,paths,records):
         raise ValueError('Incorrect path, visit or molecule support')
 
 
+def validate_dictionary(out, prov):
+    files=prov['files']
+    original=read(out/'locus_model.original.json')
+    require_original_model(original)
+    original_hash=files['locus_model.original.json']
+    if prov.get('full_model_sha256',original_hash)!=original_hash:
+        raise ValueError('Full model hash mismatch')
+    mode=prov['dictionary']
+    q=prov['dictionary_q']
+    policy=load_policy(out/'supernode_policy.json',dictionary=mode)
+    if prov['policy']!=policy or prov['policy_sha256']!=files['supernode_policy.json']:
+        raise ValueError('Resolved policy mismatch')
+    if prov['decoder']!='hmm_assessed':
+        raise ValueError('Expected assessed supernode annotation')
+    if mode=='full':
+        if q is not None or prov['model_sha256']!=original_hash or 'dictionary_selection.json' in files:
+            raise ValueError('Invalid full dictionary provenance')
+        return policy,original
+    if mode!='effective' or type(q) not in (float,int) or not 0 <= q <= 1:
+        raise ValueError('Invalid effective dictionary provenance')
+    if not {'dictionary_selection.json','locus_model.efficient.json'} <= files.keys():
+        raise ValueError('Incomplete effective dictionary manifest')
+    choice=read(out/'dictionary_selection.json')
+    model=read(out/'locus_model.efficient.json')
+    if (choice['q']!=q or prov.get('full_model_sha256')!=original_hash
+            or prov['model_sha256']!=files['locus_model.efficient.json']
+            or prov.get('effective_model_sha256')!=prov['model_sha256']
+            or choice['original_ids']!=sorted(m['id'] for m in original['motifs'])
+            or sorted(m['id'] for m in model['motifs'])!=choice['selected_ids']
+            or model!=effective_model(original,choice)):
+        raise ValueError('Effective dictionary selection or hash mismatch')
+    return policy,model
+
+
 def validate_bundle(out):
     prov=read(out/'provenance.json')
     modes=('original','represented')
@@ -88,8 +125,12 @@ def validate_bundle(out):
     paths={p:row['visits'] for p,row in rows.items()}
     unique_rows((v for vs in paths.values() for v in vs),lambda v:v['visit_id'],'visit')
     if set(paths)!=set(records): raise ValueError('Path identity mismatch')
-    policy=load_policy(out/'supernode_policy.json')
+    policy,annotation_model=validate_dictionary(out,prov)
+    motif_ids={m['id'] for m in annotation_model['motifs']+annotation_model.get('terminal_templates',[])}
     annotations=read(out/'annotation_audit.json')
+    if any(t['motif'] not in motif_ids for row in annotations.values()
+           for t in row['tokens'] if t['status']=='unit'):
+        raise ValueError('Annotated unit outside the recorded dictionary')
     events=defaultdict(list)
     ledger=unique_rows(map(json.loads,(out/'losses.jsonl').read_bytes().splitlines()),lambda e:e['id'],'event')
     for e in ledger.values():
@@ -182,6 +223,11 @@ def validate_bundle(out):
     if set(nodes)!=set(node_visits): raise ValueError('Display node identities differ')
     for n,vs in node_visits.items():
         node=nodes[n]
+        identity=[display['locus'],prov['model_sha256'],prov['policy_sha256'],
+                  node['region_id'],node['ordered_pattern'],node['protected']]
+        expected_id='SN_'+sha256(json.dumps(identity,separators=(',',':')).encode()).hexdigest()[:24]
+        if n!=expected_id:
+            raise ValueError('Node identity differs from the recorded model or policy')
         if (n!=node['id'] or sorted(node['member_visit_ids'])!=sorted(v['visit_id'] for v in vs)
             or sorted(node['observed_repeat_counts'])!=sorted({v['repeat_count'] for v in vs})
             or sorted(node.get('lossy_visit_ids',[]))!=sorted(v['visit_id'] for v in vs if v['loss_event_ids'])):
@@ -204,18 +250,35 @@ def validate_bundle(out):
                 node_and_edge_support=True,manifest_coverage=True,hashes=True)
 
 
-def export_supernodes(out,locus,records,model_path,policy_path,render=True,input_path=None):
+def export_supernodes(out,locus,records,model_path,policy_path,render=True,input_path=None,*,q=None):
     start=time.monotonic()
     policy=load_policy(policy_path)
     records=sorted(records,key=lambda r:r['id'])
-    model,mhash,features=annotate_paths(records,model_path,locus,decoder='hmm_assessed')
+    original=read(model_path)
+    require_original_model(original)
+    resolved_policy=out/'supernode_policy.json'
+    annotation_model=model_path
+    if q is None:
+        shutil.copyfile(policy_path,resolved_policy)
+    else:
+        if type(q) not in (int,float) or not 0 <= q <= 1:
+            raise ValueError('q must be in [0,1]')
+        q=float(q)
+        _,_,full_features=annotate_paths(records,model_path,locus,decoder='hmm_single')
+        # select_motifs counts only status and motif, before slot assignment or edits.
+        choice=select_motifs(original,{p:f['tokens'] for p,f in full_features.items()},q)
+        annotation_model=out/'locus_model.efficient.json'
+        dump(annotation_model,effective_model(original,choice))
+        dump(out/'dictionary_selection.json',choice)
+        policy['annotation_dictionary']='effective'
+        dump(resolved_policy,policy)
+    model,mhash,features=annotate_paths(records,annotation_model,locus,decoder='hmm_assessed')
     tokens={p:f['tokens'] for p,f in features.items()}
     slots,audits={},{}
     for p,ts in tokens.items(): slots[p],audits[p]=assign_slots(ts,tokens['P0001'])
     dump(out/'source_members.json',records)
     shutil.copyfile(model_path,out/'locus_model.original.json')
-    shutil.copyfile(policy_path,out/'supernode_policy.json')
-    display,visits=make_structure(records,tokens,audits,model,mhash,policy,digest(policy_path))
+    display,visits=make_structure(records,tokens,audits,model,mhash,policy,digest(resolved_policy))
     rep,events,decisions=plan_substitutions(records,tokens,slots,display,visits,policy)
     graphs={}; sequences={}; variants={}
     ledger=[dict(path=p,substitutions=len(es),loss_bp=len(es)) for p,es in events.items()]
@@ -262,7 +325,7 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
     nt=sum(map(len,tokens.values()))
     folded=sum(v['token_interval'][1]-v['token_interval'][0] for vs in visits.values() for v in vs if v['repeat_count']>1)
     summary=dict(locus=locus.name,paths=len(records),molecules=len({m for r in records if r['role']!='reference' for m in r['molecules']}),
-        full_dictionary=len(model['motifs']),tokens=nt,folded_tokens=folded,folded_token_fraction=folded/nt,
+        full_dictionary=len(original['motifs']),tokens=nt,folded_tokens=folded,folded_token_fraction=folded/nt,
         visits=sum(map(len,visits.values())),unknown_tokens=sum(t['status']=='unknown' for ts in tokens.values() for t in ts),
         structure_assessments=dict(Counter(t.get('structure_assessment','not_assessed') for ts in tokens.values() for t in ts)),
         budget=policy['loss_fraction'],edited_bp=sum(len(es) for es in events.values()),lossy_paths=len(events),
@@ -270,6 +333,8 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
         stages=[dict(stage='unfolded_original',display=metrics['original'],literal=metrics['original'],edited_bp=0),
                 dict(stage='zero_loss_supernodes',display=metric,literal=metrics['original'],edited_bp=0),
                 dict(stage='constrained_supernodes',display=metric,literal=metrics['represented'],edited_bp=sum(map(len,events.values())))])
+    if q is not None:
+        summary['effective_dictionary']=len(model['motifs'])
     dump(out/'summary.json',summary)
     if render:
         from vntrsupernode_viewer import write_viewer
@@ -278,12 +343,14 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
     commit=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
     sources=[*ROOT.glob('scripts/vntr*.py'),ROOT/'scripts/run_efficient_family.py',ROOT/'scripts/supernodes.html',ROOT/'scripts/supernode_compare.js',
              ROOT/'third_party/cytoscape-3.30.4/cytoscape.min.js']
-    provenance=dict(locus=locus.name,decoder='hmm_assessed',dictionary='full',dictionary_q=None,policy=policy,
-        model_sha256=mhash,policy_sha256=digest(policy_path),boundary_model_hashes=sorted({o['boundary_model_sha256']
+    provenance=dict(locus=locus.name,decoder='hmm_assessed',dictionary=policy['annotation_dictionary'],dictionary_q=q,policy=policy,
+        full_model_sha256=digest(model_path),model_sha256=mhash,policy_sha256=digest(resolved_policy),boundary_model_hashes=sorted({o['boundary_model_sha256']
             for r in records for o in r['observations'] if o.get('boundary_model_sha256')}),
         source_commit=commit.stdout.strip() if commit.returncode==0 else None,
         source_files={str(f.relative_to(ROOT)):digest(f) for f in sources if f.exists()},
         input_sha256=digest(input_path) if input_path else None,files=files)
+    if q is not None:
+        provenance['effective_model_sha256']=mhash
     dump(out/'provenance.json',provenance)
     result=validate_bundle(out)
     result.update(seconds=round(time.monotonic()-start,3),hashed_payload_bytes=sum((out/name).stat().st_size for name in files))
