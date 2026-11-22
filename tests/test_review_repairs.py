@@ -171,6 +171,7 @@ class ReviewRepairs(unittest.TestCase):
         rec['samples']={sample:1}
         annotate_rows(rows,dictionary,1,model=model)
         self.assertEqual(frag['tokens'][-1]['role'],'right_terminal')
+        self.assertEqual(frag['annotation']['ambiguity_scope'],'all_minimum_cost_paths_in_seed_candidate_DAG')
         self.assertEqual(annotate_paths([rec],model_path,locus,rows,frozen)[2]['P0002']['tokens'],direct['tokens'])
         rec['samples']['outside-scope']=1
         self.assertFalse(any(t.get('role')=='right_terminal'

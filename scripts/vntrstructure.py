@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from dataclasses import asdict
+from functools import partial
 from hashlib import sha256
 from html import escape
 from pathlib import Path
@@ -250,8 +251,8 @@ def segment(task,return_details=False,collect_optimal=False,select_representativ
 
 
 # 供批量注释调用，额外返回分解代价、歧义和备选方案。
-def segment_details(task):
-    return segment(task,return_details=True)
+def segment_details(task,collect_optimal=False):
+    return segment(task,return_details=True,collect_optimal=collect_optimal)
 
 
 # 按片段顺序回填 token 和分解审计，不根据是否能注释成功来删除片段。
@@ -281,7 +282,9 @@ def annotate_rows(rows,dictionary,workers,model=None):
     terminals=[scoped_terminal(model,f['sequence'],[r['sample']]) for r,f in fragments]
     tasks=((f['sequence'][:-len(t['sequence'])] if t else f['sequence'],dictionary,r['platform'])
            for (r,f),t in zip(fragments,terminals))
-    for i,((r,f),terminal,(tokens,annotation)) in enumerate(zip(fragments,terminals,annotation_results(segment_details,tasks,workers)),1):
+    # Frozen annotations carry the same complete optimal-path ambiguity as direct decoding.
+    annotate=partial(segment_details,collect_optimal=model is not None)
+    for i,((r,f),terminal,(tokens,annotation)) in enumerate(zip(fragments,terminals,annotation_results(annotate,tasks,workers)),1):
         if terminal:
             append_terminal(tokens,annotation,terminal,f['sequence'],len(f['sequence'])-len(terminal['sequence']))
         f['tokens']=tokens;f['annotation']=annotation
