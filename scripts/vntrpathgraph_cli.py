@@ -208,11 +208,17 @@ def main():
         if not 0 <= args.q <= 1: p.error('q must be in [0,1]')
     if args.preview_paths<0 or not 0<=args.loss_budget<=1:p.error('Invalid limits')
     if not args.reference or not args.catalog:p.error('B2 needs --reference and --catalog, including imports')
-    from vntrflankalign import build_context
+    from vntrflankalign import build_context, PREVIOUS_VERSION
     selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
     if len(selected)!=1:p.error('Unknown B2 locus')
+    payload = json.loads(args.structures_json.read_text(encoding='utf-8')) if args.structures_json else None
     with IndexedFastaReference(args.reference) as reference:
         flank_context=build_context(selected[0],reference)
+        if payload and payload.get('audit',{}).get('boundary_model_sha256') != flank_context.model_hash:
+            previous=build_context(selected[0],reference,PREVIOUS_VERSION)
+            if payload.get('audit',{}).get('boundary_model_sha256') != previous.model_hash:
+                raise ValueError('Imported flank boundary model mismatch')
+            flank_context=previous
         reference_sequence=reference.fetch(selected[0].chrom,selected[0].start,selected[0].end).upper()
     if args.supernode_policy:
         if args.graph_mode!='structure' or not args.locus_model:
@@ -236,7 +242,6 @@ def main():
     destination=locus_output_dir(args.out,args.locus);destination.mkdir(parents=True,exist_ok=False)
     dump(destination/'summary.json',dict(status='running',locus=args.locus))
     if args.structures_json:
-        payload=json.loads(args.structures_json.read_text(encoding='utf-8'))
         if payload['locus']['name']!=args.locus:raise ValueError('Input locus mismatch')
         rows=payload['rows'];metadata=dict(locus=payload['locus'],source=str(args.structures_json),
                     source_sha256=sha256(args.structures_json.read_bytes()).hexdigest())
@@ -272,7 +277,7 @@ def main():
         from vntrflankalign import write_flank_outputs
         metadata.update(extraction_version=flank_context.model['extraction_version'],boundary_model_sha256=flank_context.model_hash)
         dump(destination/'boundary_model.json',flank_context.model)
-        write_flank_outputs(destination,rows,records)
+        metadata['core_length_evidence']=write_flank_outputs(destination,rows,records)
     policy=json.loads(args.merge_rules.read_text(encoding='utf-8')) if args.merge_rules else None
     metadata['parameters']={k:str(v) for k,v in vars(args).items()}
     metadata['source_hashes']={name:sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()

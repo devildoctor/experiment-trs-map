@@ -13,7 +13,8 @@ import re
 import numpy as np
 from numba import njit
 
-VERSION = 'flank-b2.1'
+PREVIOUS_VERSION = 'flank-b2.1'
+VERSION = 'flank-b2.2'
 SCORING = dict(mismatch=2, gap_open=5, gap_extend=1)
 NORMALIZATION = 'cost,matches,cigar_distance,query_coordinates-v1'
 FIELDS = ['extraction_version', 'boundary_model_sha256', 'extraction_status',
@@ -174,12 +175,13 @@ def score_flank(template, sequence, search, max_cells=2000000):
                 match_threshold=need, anchor_length=len(template)), matrices
 
 
-def pair_endpoints(left, right, hints):
+def pair_endpoints(left, right, hints, allow_empty=False):
     """All minimum-cost valid pairs, without a quadratic scan of all endpoints."""
     left, right = sorted(left), sorted(right)
     pos, active, left_cost, best, pairs = 0, [], INF, INF, []
     for r in right:
-        while pos < len(left) and left[pos][0] < r[0]:
+        last_left = r[0] if allow_empty else r[0] - 1
+        while pos < len(left) and left[pos][0] <= last_left:
             l = left[pos]
             if l[1] < left_cost:
                 left_cost, active = l[1], [l]
@@ -265,7 +267,7 @@ def verify_alignment(template, sequence, path):
 
 
 def locate_interval(record, interval, reference_fetch, anchor_length=250, padding=120,
-                    shifts=(0, 0), max_cells=2000000, diagnostic=False):
+                    shifts=(0, 0), max_cells=2000000, diagnostic=False, allow_empty=False):
     sequence = record['query_sequence'].upper()
     start, end = interval
     templates = [(start-anchor_length, start), (end, end+anchor_length)]
@@ -280,7 +282,7 @@ def locate_interval(record, interval, reference_fetch, anchor_length=250, paddin
         evidence.append(search)
         exact.append(all_exact(template, sequence, search, side) if search['status'] == 'ready' else [])
     hints = [x.get('original_hint', 0) for x in evidence]
-    pairs = pair_endpoints(exact[0], exact[1], hints)
+    pairs = pair_endpoints(exact[0], exact[1], hints, allow_empty)
     matrices = [None, None]
     if pairs:
         evidence = [dict(e, status='scored', complete=True, endpoints=x,
@@ -291,7 +293,7 @@ def locate_interval(record, interval, reference_fetch, anchor_length=250, paddin
         for i in range(2):
             evidence[i], matrices[i] = score_flank(patterns[i], sequence, evidence[i], max_cells)
         if all(e['complete'] for e in evidence):
-            pairs = pair_endpoints(evidence[0]['endpoints'], evidence[1]['endpoints'], hints)
+            pairs = pair_endpoints(evidence[0]['endpoints'], evidence[1]['endpoints'], hints, allow_empty)
     complete = all(e.get('complete', False) for e in evidence)
     result = dict(reference_interval=list(interval), anchor_length=anchor_length,
                   status='success' if pairs else 'no_qualified_pair' if complete else
@@ -325,7 +327,7 @@ def locate_interval(record, interval, reference_fetch, anchor_length=250, paddin
 def core_eligible(fragment):
     evidence = fragment.get('core_anchor_evidence', {})
     representative = evidence.get('representative', {})
-    return (fragment.get('extraction_version') == VERSION and fragment.get('core_status') == 'success'
+    return (fragment.get('extraction_version') in (VERSION,PREVIOUS_VERSION) and fragment.get('core_status') == 'success'
             and evidence.get('complete') and evidence.get('status') == 'success'
             and (fragment.get('qstart'), fragment.get('qend')) == (representative.get('qstart'), representative.get('qend'))
             and bool(fragment.get('sequence'))
@@ -336,7 +338,7 @@ def validate_model(model, locus, reference):
     required = {'schema_version', 'extraction_version', 'locus', 'chrom', 'core_interval',
                 'fetch_interval', 'reference_sha256', 'anchor_length',
                 'scoring', 'normalization_policy', 'search_padding', 'max_dp_cells'}
-    if not required <= model.keys() or model['schema_version'] != 1 or model['extraction_version'] != VERSION:
+    if not required <= model.keys() or model['schema_version'] != 1 or model['extraction_version'] not in (VERSION,PREVIOUS_VERSION):
         raise ValueError('invalid_flank_boundary_model_schema')
     if (model['locus'], model['chrom'], model['core_interval']) != (locus.name, locus.chrom, [locus.start, locus.end]):
         raise ValueError('flank_boundary_model_locus_mismatch')
@@ -374,7 +376,8 @@ class FlankContext:
 
     def locate(self, record, interval):
         return locate_interval(record, interval, self.fetch, 250,
-                               padding=self.model['search_padding'], max_cells=self.model['max_dp_cells'])
+                               padding=self.model['search_padding'], max_cells=self.model['max_dp_cells'],
+                               allow_empty=(self.model['extraction_version'] == VERSION and list(interval)==self.model['core_interval']))
 
     def extract(self, meta, sequence, query, reference_interval, boundary_status):
         raw = dict(meta, query_sequence=sequence)
@@ -383,6 +386,9 @@ class FlankContext:
         if core['status'] == 'success':
             query = (core['representative']['qstart'], core['representative']['qend'])
             status = 'core_only'
+            lengths = {p['qend']-p['qstart'] for p in core['pairs']}
+            if 0 in lengths:
+                status = 'complete_empty' if len(lengths)==1 else 'empty_or_nonempty'
         qualified = [any(e[3] >= 175 for e in core[side].get('endpoints', []))
                      for side in ('left', 'right')]
         anchor = ('both' if core['status'] == 'success' else
@@ -390,21 +396,24 @@ class FlankContext:
                   'right_only' if qualified == [False, True] else 'cigar_only')
         result = dict(meta, status='displayed' if query and query[0]<query[1] else 'no_observed_repeat_bases',
                       reference_interval=reference_interval, boundary_status=boundary_status,
-                      extraction_version=VERSION, boundary_model_sha256=self.model_hash,
+                      extraction_version=self.model['extraction_version'], boundary_model_sha256=self.model_hash,
                       extraction_status=status, core_status=core['status'], core_ambiguous=core['ambiguous'],
                       threshold_path_dependent=core.get('threshold_path_dependent',False),
                       normalization_reason=core.get('normalization_reason'), core_anchor_evidence=core,
                       anchor=anchor, anchor_scores=[])
-        if query and query[0]<query[1]:
+        if status in ('complete_empty','empty_or_nonempty'):
+            result.update(status=status,core_status=status,qstart=query[0],qend=query[1],
+                          sequence=sequence[query[0]:query[1]],core_length=query[1]-query[0])
+        elif query and query[0]<query[1]:
             result.update(qstart=query[0], qend=query[1], sequence=sequence[query[0]:query[1]])
         return result
 
 
-def build_context(locus, reference):
+def build_context(locus, reference, version=VERSION):
     """Freeze the catalog core and its two 250 bp reference templates."""
     start, end = max(0, locus.start-250), min(reference.contig_length(locus.chrom), locus.end+250)
     dna = reference.fetch(locus.chrom, start, end).upper()
-    model = dict(schema_version=1, extraction_version=VERSION, strategy='B2',
+    model = dict(schema_version=1, extraction_version=version, strategy='B2',
                  locus=locus.name, chrom=locus.chrom, core_interval=[locus.start,locus.end],
                  fetch_interval=[start,end], reference_sha256=digest(dna), anchor_length=250,
                  scoring=SCORING, normalization_policy=NORMALIZATION, search_padding=120,
@@ -421,3 +430,6 @@ def write_flank_outputs(destination, rows, paths=()):
             audit.append(dict(identity,**{k:v for k,v in record.items() if k not in identity}))
     (destination/'extraction_audit.jsonl').write_text(
         ''.join(json.dumps(r,ensure_ascii=True)+'\n' for r in audit),encoding='utf-8')
+    return {status: dict(records=sum(r.get('core_status')==status for r in audit),
+                         molecules=len({r['molecule'] for r in audit if r.get('core_status')==status}))
+            for status in ('complete_empty','empty_or_nonempty')}
