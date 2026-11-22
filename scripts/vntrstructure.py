@@ -1,0 +1,675 @@
+#!/usr/bin/env python3
+"""Evidence-preserving motif structure graphs (not a genotype/SV caller).
+
+Catalog seeds guide annotation; repeated HiFi observations can add candidate
+variants. Exact sequence graphs and abstract motif graphs are separate products.
+"""
+from __future__ import annotations
+import argparse
+from collections import Counter, defaultdict
+from dataclasses import asdict
+from functools import partial
+from hashlib import sha256
+from html import escape
+from pathlib import Path
+import json
+import math
+import re
+
+from vntrgraph import IndexedFastaReference, read_catalog, discover_bams, load_source_namespaces, locus_output_dir
+from vntrreads import read_bam, write_table, collect_reads, annotation_results, row_molecule_key
+from vntrcore import edit_distance, revcomp, compact, canonical_motif
+from vntrsummary import structural_summary, reference_report, exact_runs, summary_svg, is_primary
+from vntrpartition import load_model, export_core
+
+from vntrmotifs import primitive_unit, definition, forms, context_support, TwoPaths, base_metrics, compound_annotations
+
+VERSION='5.2-frozen-partition'
+PALETTE=['#3874ad','#bf722b','#927c29','#a34e83','#718441']
+
+
+# 与主点图统一按样本、命名空间和 QNAME 去重；旧结果的命名空间为空。
+def support_key(row):
+    # BAM copies and multiple alignment records must not multiply support.
+    return row_molecule_key(row)
+
+
+# 结构模式要求目录显式提供种子；种子来源本身不是分子验证结果。
+def seed_dictionary(motifs):
+    if not motifs:
+        raise ValueError('Structure mode requires MOTIFS in BED; seeds are not inferred silently')
+    unique=[]
+    for motif in motifs:
+        if not motif or set(motif)-set('ACGT'):
+            raise ValueError('MOTIFS must contain nonempty ACGT strings')
+        if motif not in unique: unique.append(motif)
+    return normalize_dictionary([dict(id=f'M{i+1}',base=f'M{i+1}',sequence=m,source='catalog_seed',support=0)
+            for i,m in enumerate(unique)])
+
+
+# 补充基本周期，并检查哪些目录单元可由更短单元组成，区分基础层和复合层。
+def normalize_dictionary(dictionary):
+    for record in list(dictionary):
+        record.update(definition(record['sequence']))
+        record.setdefault('evidence_status','not_observed_in_repeat_context')
+        primitive=record['primitive_sequence']
+        if primitive != record['sequence'] and not any(canonical_motif(m['sequence'])==canonical_motif(primitive) for m in dictionary):
+            name=f'M{len(dictionary)+1}'
+            dictionary.append(dict(id=name,base=name,sequence=primitive,source='derived_primitive',
+                                   parent_id=record['id'],support=0,**definition(primitive),evidence_status='not_observed_in_repeat_context'))
+    for record in dictionary:
+        unit=record['sequence']
+        shorter={v for m in dictionary if len(m['sequence'])<len(unit) for v in forms(m['sequence'])}
+        reachable={0}
+        for i in range(len(unit)):
+            if i in reachable:
+                reachable.update(i+len(m) for m in shorter if unit.startswith(m,i))
+        if len(unit) in reachable:record['level']='compound'
+    return dictionary
+
+
+# 按最佳种子相位枚举参考变体，再独立扫描精确周期，减少遗漏新周期的机会。
+def add_reference_units(dictionary, sequence):
+    """Use the best seed phase to enumerate reference units, including interruptions."""
+    keys={canonical_motif(m['sequence']) for m in dictionary}
+    for seed in list(dictionary):
+        length=len(seed['sequence'])
+        if length>len(sequence):continue
+        options=[]
+        for offset in range(length):
+            units=[sequence[i:i+length] for i in range(offset,len(sequence)-length+1,length)]
+            if not units:continue
+            similar=sum(edit_distance(u,seed['sequence'])<=max(1,length//4) for u in units)
+            exact=sum(u==seed['sequence'] for u in units)
+            options.append((similar,exact,-offset,units))
+        if not options:continue
+        units=max(options,key=lambda x:x[:3])[3]
+        for unit in dict.fromkeys(units):
+            if set(unit)-set('ACGT') or edit_distance(unit,seed['sequence'])>max(1,length//4):continue
+            key=canonical_motif(unit)
+            if key in keys:continue
+            keys.add(key)
+            name=f'M{len(dictionary)+1}'
+            dictionary.append(dict(id=name,base=name,parent_id=seed['id'],sequence=unit,
+                                   source='reference_unit',support=0))
+    # Scan independently: approximate seed matches must not hide a new period.
+    exact_covered=set()
+    for token in segment((sequence,dictionary,'HiFi')):
+        if token['status']=='unit' and token['edit_distance']==0:exact_covered.update(range(token['start'],token['end']))
+    for hit in exact_runs(sequence):
+        unit=hit['sequence'];key=canonical_motif(unit)
+        if key in keys or sum(i in exact_covered for i in range(hit['start'],hit['end']))>=.8*(hit['end']-hit['start']):continue
+        name=f'M{len(dictionary)+1}';keys.add(key)
+        dictionary.append(dict(id=name,base=name,sequence=unit,source='reference_period',support=0))
+    return normalize_dictionary(dictionary)
+
+
+# 提取满足次数和跨度条件的精确局部串联单元。
+def exact_tandem_units(sequence,min_length=2,max_length=200):
+    return {h['sequence'] for h in exact_runs(sequence,max_period=max_length,
+            min_period=min_length,min_copies=2,min_span=2*min_length)}
+
+
+# 双向模板进行动态规划；每个 token 保存实际碱基，并记录主方案和一个备选。
+def segment(task,return_details=False,collect_optimal=False,select_representative=False,export_optimal=False):
+    """Seed-guided exact-slice DP. Gap/length penalties exceed UNKNOWN cost.
+
+    Unknown=1/base; substitutions cost min(3, 0.6*motif length). Both motif
+    orientations are tested, not confused with the BAM alignment strand.
+    """
+    if select_representative: collect_optimal=True
+    sequence,dictionary,platform=task
+    n=len(sequence)
+    variants=[]
+    seen=set()
+    for m in dictionary:
+        if m.get('level',definition(m['sequence'])['level']) != 'base':continue
+        for orientation,s in (('+',m['sequence']),('-',revcomp(m['sequence']))):
+            if orientation not in m.get('match_orientations',('+','-')):continue
+            if (m['id'],s) not in seen:
+                variants.append((m,s,orientation));seen.add((m['id'],s))
+    candidates=defaultdict(set)
+    for v,(m,s,orientation) in enumerate(variants):
+        length=len(s); k=min(length,5,max(2,length//5))
+        # A short unit with one edit may share no exact seed (CTG -> CCG).
+        # Enumerate every start for STRs; long units retain seed-guided search.
+        if length<=6:
+            for start in range(n):candidates[start].add(v)
+            continue
+        slip=max(1,min(8,math.ceil(length*.08)))
+        for offset in sorted({0,max(0,length//3),max(0,2*length//3-k),length-k}):
+            hit=sequence.find(s[offset:offset+k])
+            while hit>=0:
+                for delta in range(-slip,slip+1):
+                    start=hit-offset+delta
+                    if 0<=start<n:candidates[start].add(v)
+                hit=sequence.find(s[offset:offset+k],hit+1)
+    dp=TwoPaths(n);cost=dp.cost
+    offered={} if collect_optimal else None
+    def update(end,value,step):
+        edge_cost=value-cost[step[0]]; edge=(step[0],end)+step[1:]
+        if offered is not None:offered[edge]=edge_cost
+        dp.offer(step[0],end,edge_cost,edge)
+    for i in range(n):
+        update(i+1,cost[i]+1,(i,-1,'unknown',0))
+        for v in sorted(candidates.get(i,())):
+            m,s,orientation=variants[v];length=len(s)
+            # 32%/38% 是候选匹配搜索上限，最终还受代价约束，不是准确率或有损聚合比例。
+            allowed=0 if length==1 else 1 if length<=6 else max(1,math.floor(length*(.32 if platform=='HiFi' else .38)))
+            slip=0 if length==1 else max(1,min(8,math.ceil(length*(.08 if platform=='HiFi' else .16))))
+            for width in range(max(1 if length==1 else 2,length-slip),min(n-i,length+slip)+1):
+                d=edit_distance(s,sequence[i:i+width])
+                if d<=allowed:
+                    update(i+width,cost[i]+.1+min(3,length*.6)*d+2*abs(width-length),(i,v,'unit',d))
+        # Very short terminal matches remain UNKNOWN instead of 1bp "copies".
+        for v,(m,s,orientation) in enumerate(variants):
+            minimum=max(2,min(8,len(s)//4))
+            if i==0:
+                for width in range(minimum,min(len(s),n+1)):
+                    if sequence[:width]==s[-width:]:update(width,.2,(0,v,'partial',0))
+            if minimum<=n-i<len(s) and sequence[i:]==s[:n-i]:
+                update(n,cost[i]+.2,(i,v,'partial',0))
+    audit=dp.audit();primary=dp.trace();alternate=dp.trace(1)
+    mandatory=None
+    if collect_optimal:
+        # Localize uncertainty using every minimum-cost path in the candidate
+        # DAG, rather than claiming that the two retained traces exhaust it.
+        outgoing=defaultdict(list)
+        for edge,weight in offered.items():outgoing[edge[0]].append((edge,weight))
+        suffix=[float('inf')]*(n+1);suffix[n]=0.
+        for i in range(n-1,-1,-1):
+            suffix[i]=min(weight+suffix[edge[1]] for edge,weight in outgoing[i])
+        optimal=defaultdict(list)
+        for edge,weight in offered.items():
+            if abs(cost[edge[0]]+weight+suffix[edge[1]]-cost[n])<1e-8:
+                optimal[edge[0]].append(edge)
+        forward=[0]*(n+1);backward=[0]*(n+1);forward[0]=1;backward[n]=1
+        for i in range(n):
+            for edge in optimal[i]:forward[edge[1]]+=forward[i]
+        for i in range(n-1,-1,-1):
+            backward[i]=sum(backward[edge[1]] for edge in optimal[i])
+        mandatory={edge for edges in optimal.values() for edge in edges
+                   if forward[edge[0]]*backward[edge[1]]==forward[n]}
+        audit['ambiguity_scope']='all_minimum_cost_paths_in_seed_candidate_DAG'
+        audit['optimal_paths_at_least_two']=forward[n]>1
+        if select_representative:
+            # Secondary objectives range over the entire primary-optimal DAG.
+            chosen={n:(0,0,(),[])}
+            for i in range(n-1,-1,-1):
+                options=[]
+                for edge in optimal[i]:
+                    start,end,v,status,d=edge
+                    if end not in chosen: continue
+                    exact,unknown,tie,tail=chosen[end]
+                    motif,_,orientation=variants[v] if v>=0 else ({'id':'~'},'', '?')
+                    key=(orientation!='+',motif['id'],start,end,{'unit':0,'partial':1,'unknown':2}[status],d)
+                    options.append((exact-(end-start if status=='unit' and not d else 0),
+                                    unknown+(end-start if status=='unknown' else 0),
+                                    (key,)+tie,[edge]+tail))
+                if options: chosen[i]=min(options,key=lambda x:x[:3])
+            primary=chosen[0][3]
+            audit['selection_policy_version']='partition-v2-exact-unknown-lexical'
+            audit['selected_exact_template_bp']=-chosen[0][0]
+            audit['selected_unknown_bp']=chosen[0][1]
+    def convert(steps,other_steps,check_complete=True):
+        other_set=set(other_steps)
+        result=[]
+        for start,end,v,status,d in steps:
+            m,s,orientation=variants[v] if v>=0 else ({'id':'U','base':'U'},'','?')
+            family=canonical_motif(s) if s else 'UNKNOWN'
+            from vntrcore import motif_orientation
+            phase,canonical_orientation=motif_orientation(s,family) if s else (0,'?')
+            t=dict(start=start,end=end,exact_bases=sequence[start:end],status=status,
+                   motif=m['id'],base=m['base'],template=s,orientation=orientation,family=family,
+                   phase=phase,phase_policy='fixed_template_phase',canonical_orientation=canonical_orientation,
+                   orientation_reference='catalog_template',phase_reference='canonical_family',edit_distance=d,
+                   annotation_ambiguity=((start,end,v,status,d) not in mandatory if mandatory is not None else
+                                         audit['annotation_ambiguity'] and (start,end,v,status,d) not in other_set))
+            if status=='unknown' and result and result[-1]['status']=='unknown':
+                result[-1]['end']=end;result[-1]['exact_bases']+=t['exact_bases']
+                result[-1]['annotation_ambiguity']|=t['annotation_ambiguity']
+            else:result.append(t)
+        if check_complete:assert ''.join(t['exact_bases'] for t in result)==sequence
+        return result
+    result=convert(primary,alternate)
+    if collect_optimal:
+        intervals=[]
+        for t in result:
+            if not t['annotation_ambiguity']:continue
+            if intervals and intervals[-1][1]==t['start']:intervals[-1][1]=t['end']
+            else:intervals.append([t['start'],t['end']])
+        audit['ambiguity_intervals']=intervals
+        if export_optimal:
+            audit['optimal_dag']=dict(length=n,primary_cost=cost[n],path_count=forward[n],
+                mandatory_vertices=[i for i in range(n+1) if forward[i]*backward[i]==forward[n]],
+                edges=[dict(convert([edge],[],False)[0],cost=offered[edge])
+                       for i in sorted(optimal) for edge in sorted(optimal[i])])
+    audit['metrics']=base_metrics(result)
+    audit['alternative']=convert(alternate,primary) if alternate else []
+    audit['alternative_metrics']=base_metrics(audit['alternative']) if alternate else None
+    return (result,audit) if return_details else result
+
+
+# 供批量注释调用，额外返回分解代价、歧义和备选方案。
+def segment_details(task,collect_optimal=False):
+    return segment(task,return_details=True,collect_optimal=collect_optimal)
+
+
+# 按片段顺序回填 token 和分解审计，不根据是否能注释成功来删除片段。
+def scoped_terminal(model,sequence,samples,is_reference=False):
+    if is_reference or not samples:
+        return None
+    return next((t for t in (model or {}).get('terminal_templates',[])
+                 if set(samples).issubset(t['samples']) and sequence.endswith(t['sequence'])),None)
+
+
+def append_terminal(tokens,audit,terminal,sequence,stop,assessed=False):
+    token = dict(start=stop, end=len(sequence), exact_bases=sequence[stop:],
+                 template=terminal['sequence'], motif=terminal['id'], base=terminal['id'],
+                 orientation='+', phase=0, status='unit', role='right_terminal',
+                 edit_distance=0, annotation_ambiguity=False)
+    if assessed:
+        token.update(structure_assessment='invariant_within_model', boundary_assessment='invariant_within_model')
+        if 'complete_motif_count_range' in audit:
+            audit['complete_motif_count_range'] = [n+1 for n in audit['complete_motif_count_range']]
+    tokens.append(token)
+    if audit.get('alternative'): audit['alternative'].append(dict(token))
+    audit['terminal_scope'] = 'frozen_sample_specific_template_compatibility_not_new_support'
+
+
+def annotate_rows(rows,dictionary,workers,model=None):
+    fragments=[(r,f) for r in rows for f in r['fragments']]
+    terminals=[scoped_terminal(model,f['sequence'],[r['sample']]) for r,f in fragments]
+    tasks=((f['sequence'][:-len(t['sequence'])] if t else f['sequence'],dictionary,r['platform'])
+           for (r,f),t in zip(fragments,terminals))
+    # Frozen annotations carry the same complete optimal-path ambiguity as direct decoding.
+    annotate=partial(segment_details,collect_optimal=model is not None)
+    for i,((r,f),terminal,(tokens,annotation)) in enumerate(zip(fragments,terminals,annotation_results(annotate,tasks,workers)),1):
+        if terminal:
+            append_terminal(tokens,annotation,terminal,f['sequence'],len(f['sequence'])-len(terminal['sequence']))
+        f['tokens']=tokens;f['annotation']=annotation
+        if workers>1 and i%100==0:print(f'Annotated {i}/{len(fragments)}',flush=True)
+
+
+# 从合格 HiFi 主比对学习新模板；要求精确重复上下文和去重支持，门槛只影响字典。
+def learn_variants(rows,dictionary,minimum=3,limit=256,min_fraction=.10):
+    """Discover primitive local repeats independently of current annotation.
+
+    Exact recurring interruptions are also retained, with raw-sequence support.
+    """
+    existing={canonical_motif(m['sequence']) for m in dictionary}
+    observed=defaultdict(set);by_sample=defaultdict(lambda:defaultdict(set))
+    sources=defaultdict(set);informative=defaultdict(set)
+    for r in rows:
+        if r['platform']!='HiFi':continue
+        for f in r['fragments']:
+            if not is_primary(f):continue
+            informative[r['sample']].add(support_key(r))
+            sequence=f.get('sequence',''.join(t['exact_bases'] for t in f['tokens']))
+            runs=exact_runs(sequence,max_period=200,min_period=2,min_copies=2,min_span=12)
+            candidates=[(h['sequence'],'','local_exact_tandem') for h in runs]
+            for i,t in enumerate(f['tokens']):
+                seq=t['exact_bases'];left=f['tokens'][i-1] if i else None;right=f['tokens'][i+1] if i+1<len(f['tokens']) else None
+                neighbors=[x for x in (left,right) if x and x['status']=='unit']
+                if any(h['start']<=t.get('start',-1) and t.get('end',len(sequence)+1)<=h['end'] for h in runs):continue
+                if t['status']=='unit' and t['orientation']=='+':
+                    if neighbors and abs(len(seq)-len(t['template']))<=max(1,math.ceil(len(t['template'])*.04)):
+                        candidates.append((seq,t['base'],'matched_variant'))
+                if t['status']=='unknown':
+                    if 2<=len(seq)<=200 and len(neighbors)==2:
+                        candidates.append((seq,left['base'],'unknown_interruption'))
+            for candidate,base,source in candidates:
+                candidate=primitive_unit(candidate)
+                if not 2<=len(candidate)<=200 or set(candidate)-set('ACGT'):continue
+                key=canonical_motif(candidate)
+                if key in existing:continue
+                # A candidate must have exact neighboring unit context in this molecule.
+                context=context_support(sequence,[candidate]+[m['sequence'] for m in dictionary if m.get('level','base')=='base'])
+                if not context[candidate]['context_occurrences']:continue
+                item=(key,candidate,base);molecular=support_key(r)
+                observed[item].add(molecular);by_sample[item][r['sample']].add(molecular);sources[item].add(source)
+    grouped=defaultdict(list)
+    for item,ids in observed.items():grouped[item[0]].append((item,ids))
+    audit=[];admitted=[]
+    for key,variants in grouped.items():
+        item,ids=max(variants,key=lambda x:(len(x[1]),'local_exact_tandem' in sources[x[0]],x[0][1]))
+        all_ids=set().union(*(v for _,v in variants));sample_counts=defaultdict(set)
+        for variant,_ in variants:
+            for sample,seen in by_sample[variant].items():sample_counts[sample].update(seen)
+        fraction=max((len(seen)/len(informative[sample]) for sample,seen in sample_counts.items() if informative[sample]),default=0)
+        source_set=set().union(*(sources[v] for v,_ in variants))
+        # 这里检查跨样本总分子数和样本内最高比例；并非要求同一样本达到 minimum 条。
+        reason='accepted' if len(all_ids)>=minimum and fraction>=min_fraction else 'low_HiFi_support' if len(all_ids)<minimum else 'low_sample_fraction'
+        audit.append(dict(sequence=item[1],base=item[2],length=len(item[1]),support=len(all_ids),hifi_support=len(all_ids),sample_fraction=round(fraction,4),sources=','.join(sorted(source_set)),status=reason,phase_key=key))
+        if reason=='accepted':admitted.append((item,len(all_ids),sorted(all_ids),source_set))
+    admitted.sort(key=lambda x:(-x[1],x[0][1]))
+    if len(dictionary)+len(admitted)>limit:raise ValueError(f'Motif candidate limit {limit} exceeded; no silent truncation')
+    added=[]
+    for item,support,ids,source_set in admitted:
+        name=f'M{len(dictionary)+len(added)+1}'
+        added.append(dict(id=name,base=name,parent_id=item[2],sequence=item[1],source='learned_'+','.join(sorted(source_set)),support=support,support_ids=ids,evidence_status='supported'))
+    return normalize_dictionary(dictionary+added),sorted(audit,key=lambda x:(x['status']!='accepted',-x['support'],x['sequence']))
+
+
+# 将连续同类完整单元写成次数块；未知和末端残片保持独立状态。
+def run_blocks(tokens,family=False):
+    blocks=[]
+    for i,t in enumerate(tokens):
+        key=(t['base'] if family else t['motif'])+('r' if t['orientation']=='-' else '')
+        if t['status']=='unknown':key='U'
+        if t['status']=='partial':key+='p'
+        if blocks and blocks[-1]['label']==key and t['status']=='unit':
+            blocks[-1]['count']+=1;blocks[-1]['end']=i+1;blocks[-1]['bp']+=len(t['exact_bases'])
+        else:blocks.append(dict(label=key,count=1,start=i,end=i+1,bp=len(t['exact_bases']),status=t['status']))
+    return blocks
+
+
+# 复合重复是独立注释层；与基础单元计数可能重叠，不能直接相加。
+def compound_blocks(tokens,catalog=()):
+    return [dict(h,start=h['start_token'],end=h['end_token'],bp_start=h['start'],bp_end=h['end'],width=h['base_unit_count'])
+            for h in compound_annotations(tokens,catalog)]
+
+
+# 同时建立精确节点、模板节点和显示家族；路径保留实际顺序，分子支持与经过次数分开。
+def summarize(rows,dictionary):
+    exact={};abstract={};edges={};exact_edges={};patterns={}
+    family_nodes={};family_edges={};base_lookup={m['id']:m['base'] for m in dictionary}
+    def node(store,key,seq,status):
+        if key not in store:store[key]=dict(id=key,sequence=seq,status=status,reads=set(),primary_reads=set(),occurrences=0,samples=defaultdict(set))
+        return store[key]
+    def add(n,row,fragment):
+        key=support_key(row);n['reads'].add(key);n['occurrences']+=1;n['samples'][row['sample']].add(key)
+        if is_primary(fragment):n['primary_reads'].add(key)
+    def edge(store,a,b,row,fragment):
+        key=(a,b)
+        if key not in store:store[key]=dict(source=a,target=b,reads=set(),primary_reads=set(),occurrences=0,samples=defaultdict(set))
+        add(store[key],row,fragment)
+    for row in rows:
+        for f in row['fragments']:
+            for t in f['tokens']:
+                t['qstart']=f['qstart']+t['start'];t['qend']=f['qstart']+t['end']
+                t['exact_node']='E'+sha256(t['exact_bases'].encode()).hexdigest()[:16]
+                if t['status']=='unknown':sid='U'+sha256(t['exact_bases'].encode()).hexdigest()[:12]
+                elif t['status']=='partial':sid=t['motif']+('r' if t['orientation']=='-' else '')+'p'+sha256(t['exact_bases'].encode()).hexdigest()[:8]
+                else:sid=t['motif']+('r' if t['orientation']=='-' else '')
+                t['structure_node']=sid
+                add(node(exact,t['exact_node'],t['exact_bases'],'exact'),row,f)
+                add(node(abstract,sid,t['template'] if t['status']=='unit' else t['exact_bases'],t['status']),row,f)
+                family=t['base']+('r' if t['orientation']=='-' else '') if t['status']=='unit' else 'U' if t['status']=='unknown' else 'P'
+                t['family_node']=family
+                add(node(family_nodes,family,'','motif_family' if t['status']=='unit' else 'visual_bucket'),row,f)
+            for a,b in zip(f['tokens'],f['tokens'][1:]):
+                edge(edges,a['structure_node'],b['structure_node'],row,f)
+                edge(exact_edges,a['exact_node'],b['exact_node'],row,f)
+                edge(family_edges,a['family_node'],b['family_node'],row,f)
+            f['blocks']=run_blocks(f['tokens']);f['family_blocks']=run_blocks(f['tokens'],True)
+            f['compounds']=compound_blocks(f['tokens'],[m['sequence'] for m in dictionary if m['level']=='compound' and m['source']=='catalog_seed'])
+            f['structure']=' → '.join(f"{b['label']}×{b['count']}" if b['status']=='unit' else f"{b['label']}({b['bp']}bp)" for b in f['blocks'])
+            f['family_structure']=' → '.join(f"{b['label']}×{b['count']}" if b['status']=='unit' else f"{b['label']}({b['bp']}bp)" for b in f['family_blocks'])
+            f['features']=[]
+            if any(b['count']>=2 for b in f['blocks']):f['features'].append('tandem_run')
+            if f['compounds']:f['features'].append('compound_candidate')
+            if any(t['status']=='unknown' for t in f['tokens'][1:-1]):f['features'].append('unresolved_internal_segment')
+            if any(t['orientation']=='-' for t in f['tokens']):f['features'].append('reverse_motif_candidate')
+            signature=compact([f['coverage'],[t['structure_node'] for t in f['tokens']]])
+            pid='T'+sha256(signature.encode()).hexdigest()[:12]
+            f['pattern_id']=pid
+            if pid not in patterns:patterns[pid]=dict(id=pid,structure=f['structure'],coverage=f['coverage'],reads=set(),primary_reads=set(),occurrences=0,samples=defaultdict(set))
+            add(patterns[pid],row,f)
+            assert ''.join(exact[t['exact_node']]['sequence'] for t in f['tokens'])==f['sequence']
+    def finish(store):
+        result=[]
+        for key,r in sorted(store.items()):
+            r['support']=len(r.pop('reads'));r['primary_support']=len(r.pop('primary_reads'))
+            r['samples']={s:len(v) for s,v in r['samples'].items()};result.append(r)
+        return result
+    return dict(exact_nodes=finish(exact),structure_nodes=finish(abstract),edges=finish(edges),exact_edges=finish(exact_edges),
+                patterns=sorted(finish(patterns),key=lambda p:(-p['support'],p['id'])),family_nodes=finish(family_nodes),family_edges=finish(family_edges))
+
+
+# 颜色只用于区分显示标签，不表达致病性或统计置信度。
+def color(label):
+    if label.startswith('U'):return '#87909b'
+    if label.startswith('P'):return '#b8a87a'
+    match=re.match(r'M(\d+)',label)
+    base=PALETTE[(int(match[1])-1)%len(PALETTE)] if match else '#87909b'
+    variant=re.search(r'v(\d+)',label)
+    factor=1 if not variant else .58+.1*(int(variant[1])%4)
+    return '#'+''.join(f'{round(int(base[i:i+2],16)*factor):02x}' for i in (1,3,5))
+
+
+# 家族转移图只展示邻接关系；U/P 是显示桶，不能据此认定序列相同。
+def graph_svg(graph,locus):
+    """Small family-level topology; U/P are explicit display buckets only."""
+    nodes=graph['family_nodes'];edges=graph['family_edges'];pos={n['id']:(130+i*245,155) for i,n in enumerate(nodes)}
+    width=max(900,245*len(nodes)+40);height=360+len(edges)*22
+    parts=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+           '<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="#55677c"/></marker></defs>',
+           '<rect width="100%" height="100%" fill="white"/>',f'<text x="24" y="28" font-size="20">{escape(locus)} motif-family graph / distinct-read support</text>',
+           '<text x="24" y="51" font-size="13">U/P = visual buckets, not merged biological sequences. Only recorded read paths are supported.</text>']
+    for e in edges:
+        x,y=pos[e['source']];xx,yy=pos[e['target']]
+        if x==xx:d=f'M {x-25} {y-26} C {x-100} {y-110}, {x+100} {y-110}, {x+25} {y-26}'
+        elif x<xx:d=f'M {x+72} {y-10} Q {(x+xx)/2} {55-abs(xx-x)*.02} {xx-72} {yy-10}'
+        else:d=f'M {x-72} {y+10} Q {(x+xx)/2} {250+abs(xx-x)*.02} {xx+72} {yy+10}'
+        parts.append(f'<path d="{d}" fill="none" stroke="#55677c" stroke-width="1.5" marker-end="url(#arrow)"><title>{e["source"]} → {e["target"]}: {e["support"]} reads; {e["occurrences"]} traversals</title></path>')
+    for n in nodes:
+        x,y=pos[n['id']]
+        parts.append(f'<rect x="{x-72}" y="{y-27}" width="144" height="54" fill="{color(n["id"])}" stroke="#26364a"/>')
+        parts.append(f'<text x="{x}" y="{y-6}" text-anchor="middle" fill="white" font-size="17">{n["id"]}</text><text x="{x}" y="{y+15}" text-anchor="middle" fill="white" font-size="13">{n["support"]} reads</text>')
+    for i,e in enumerate(sorted(edges,key=lambda e:(-e['support'],e['source'],e['target']))):
+        parts.append(f'<text x="24" y="{320+i*22}" font-size="14">{e["source"]} → {e["target"]}: {e["support"]} reads / {e["primary_support"]} primary MAPQ≥20 / {e["occurrences"]} traversals</text>')
+    return ''.join(parts)+'</svg>'
+
+
+# 全部片段使用同一 bp 比例尺；横轴是片段自身坐标而非参考多序列比对。
+def rows_svg(rows,max_length,title):
+    count=sum(max(1,len(r['fragments'])) for r in rows);height=100+count*65
+    parts=[f'<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="{height}" viewBox="0 0 1500 {height}" font-family="sans-serif"><rect width="100%" height="100%" fill="white"/>',f'<text x="20" y="25" font-size="18">{escape(title)}</text>',
+           f'<text x="20" y="49" font-size="12">Observed read-relative bp, not reference alignment. Shared scale 0–{max_length} bp. All rows retained.</text>']
+    scale=1090/max(1,max_length);y=83
+    for row in rows:
+        fragments=row['fragments'] or [None]
+        for f in fragments:
+            label=f'{row["sample"]}/{row["platform"]}/{row.get("namespace", "")} {row["read_id"]}'
+            parts.append(f'<text x="20" y="{y}" font-size="11"><title>{escape(label)}</title>{escape(label[:49])}</text>')
+            if not f:
+                parts.append(f'<text x="390" y="{y}" font-size="12">{escape(row["status"])}</text>');y+=65;continue
+            parts.append(f'<text x="20" y="{y+18}" font-size="10">{escape(f["coverage"])} / {escape(f["anchor"])}</text>')
+            for t in f['tokens']:
+                x=390+t['start']*scale;w=(t['end']-t['start'])*scale
+                label=t['motif']+('r' if t['orientation']=='-' else '')
+                dashed=' stroke-dasharray="3 2"' if t['status']=='partial' else ''
+                parts.append(f'<rect x="{x:.2f}" y="{y-12}" width="{w:.2f}" height="22" fill="{color(label)}" stroke="#fff" stroke-width=".5"{dashed}><title>{escape(label)}; {t["structure_node"]}; [{t["qstart"]},{t["qend"]}); edit={t["edit_distance"]}; {escape(t["exact_bases"])}</title></rect>')
+                if w>=25:parts.append(f'<text x="{x+w/2:.2f}" y="{y+3}" text-anchor="middle" font-size="9" fill="white">{escape(label)}</text>')
+            summary=f['str_annotation']['expression'] if 'str_annotation' in f else f['family_structure']
+            parts.append(f'<text x="390" y="{y+28}" font-size="11"><title>{escape(summary)}</title>{escape(summary[:140])}{"… (full path in HTML)" if len(summary)>140 else ""}</text>')
+            y+=65
+    return ''.join(parts)+'</svg>'
+
+
+# 精确 GFA 写实际碱基；抽象 GFA 写 S=* 和模板标签，后者不能重建真实碱基。
+def write_gfa(path,nodes,edges,rows,abstract=False):
+    with path.open('w',encoding='utf-8') as out:
+        out.write('H\tVN:Z:1.0\tPG:Z:vntrstructure-4\tDS:Z:'+('abstract_motif_graph_not_base_reconstruction' if abstract else 'exact_sequence_graph')+'\n')
+        for n in nodes:
+            seq='*' if abstract else n['sequence']
+            out.write(f'S\t{n["id"]}\t{seq}\tLN:i:{len(n["sequence"])}\tRC:i:{n["support"]}\tPC:i:{n["primary_support"]}\tOC:i:{n["occurrences"]}\tTS:Z:{n["sequence"]}\n')
+        for e in edges:out.write(f'L\t{e["source"]}\t+\t{e["target"]}\t+\t0M\tRC:i:{e["support"]}\tOC:i:{e["occurrences"]}\n')
+        key='structure_node' if abstract else 'exact_node'
+        for r in rows:
+            for f in r['fragments']:
+                p=','.join(t[key]+'+' for t in f['tokens'])
+                if p:out.write(f'P\t{f["id"]}\t{p}\t*\tRN:Z:{r["read_id"]}\tCV:Z:{f["coverage"]}\n')
+
+
+# 汇总图、结构类型、局部模块和分子证据，并输出完整数据及交互页面。
+def emit(destination,locus,rows,dictionary,audit,reference_structure=None,summary_minimum=3,summary_fraction=.10):
+    if locus.str_structure:
+        import vntrstr
+        str_records = vntrstr.annotate_rows(rows,locus.str_structure)
+        if reference_structure:
+            record = vntrstr.path_record('REFERENCE',reference_structure['sequence'],locus.str_structure,
+                                         kind='reference',coverage='catalog_interval')
+            reference_structure['str_annotation'] = record['annotation']
+            str_records.insert(0,record)
+        vntrstr.write_outputs(destination,locus.name,locus.str_structure,str_records)
+    graph=summarize(rows,dictionary)
+    summary=structural_summary(rows,summary_minimum,summary_fraction)
+    audit['structure_summary']=summary['audit']
+    tokens=[t for r in rows for f in r['fragments'] for t in f['tokens']]
+    fragments=[f for r in rows for f in r['fragments']]
+    motif_reads=defaultdict(set)
+    for r in rows:
+        for f in r['fragments']:
+            for t in f['tokens']:
+                if t['status']=='unit':motif_reads[t['motif']].add(support_key(r))
+    evidence=defaultdict(set);positions=defaultdict(list)
+    for r in rows:
+        if r['platform']!='HiFi':continue
+        for f in r['fragments']:
+            if not is_primary(f):continue
+            hits=context_support(f['sequence'],[m['sequence'] for m in dictionary])
+            for motif in dictionary:
+                for start,end in hits[motif['sequence']]['context_occurrences']:
+                    evidence[motif['id']].add(support_key(r))
+                    positions[motif['id']].append(dict(molecule_key=support_key(r),fragment_id=f['id'],start=start,end=end))
+    for motif in dictionary:
+        motif['final_read_support']=len(motif_reads[motif['id']])
+        motif['evidence_read_support']=len(evidence[motif['id']])
+        motif['support_positions']=positions[motif['id']]
+        motif['evidence_status']='supported' if len(evidence[motif['id']])>=summary_minimum else 'observed_below_threshold' if evidence[motif['id']] else 'not_observed_in_repeat_context'
+    for f in fragments:
+        f['base_metrics']=base_metrics(f['tokens'])
+    total=sum(len(t['exact_bases']) for t in tokens);unknown=sum(len(t['exact_bases']) for t in tokens if t['status']=='unknown')
+    audit.update(version=VERSION,status='complete',graph_fragments=len(fragments),token_occurrences=len(tokens),
+                 exact_nodes=len(graph['exact_nodes']),structure_nodes=len(graph['structure_nodes']),
+                 shared_structure_nodes=sum(n['support']>1 for n in graph['structure_nodes']),
+                 self_loop_edges=sum(e['source']==e['target'] for e in graph['edges']),
+                 unknown_bases=unknown,total_observed_bases=total,unknown_fraction=unknown/max(1,total),
+                 sequence_reconstruction_checks_passed=len(fragments),
+                 feature_counts=dict(Counter(x for f in fragments for x in f['features'])),
+                 independent_molecules=len({support_key(r) for r in rows}),
+                 support_definition='distinct sample/namespace/QNAME; repeated units, BAM copies, platform labels and alignments counted once per node/edge',
+                 limitations='Exploratory seed-guided annotation. Candidate-window boundaries. Abstract graph is not allele sequence; U/P overview buckets do not assert sequence identity; merged graph combinations require observed read paths.')
+    audit['platform_annotation']={}
+    for platform in sorted({r['platform'] for r in rows}):
+        ts=[t for r in rows if r['platform']==platform for f in r['fragments'] for t in f['tokens']]
+        bases=sum(len(t['exact_bases']) for t in ts)
+        audit['platform_annotation'][platform]=dict(bases=bases,unknown_fraction=sum(len(t['exact_bases']) for t in ts if t['status']=='unknown')/max(1,bases))
+    write_gfa(destination/f'{locus.name}.reads.gfa',graph['exact_nodes'],graph['exact_edges'],rows)
+    write_gfa(destination/f'{locus.name}.structure.gfa',graph['structure_nodes'],graph['edges'],rows,True)
+    write_table(destination/'motifs.tsv',dictionary,['id','base','parent_id','sequence','source','level','primitive_sequence','repeat_factor','family','phase_policy','support','final_read_support','evidence_read_support','evidence_status','support_ids','support_positions'])
+    write_table(destination/'motif_candidates.tsv',audit.get('motif_candidates',[]),['round','sequence','base','length','support','hifi_support','sample_fraction','sources','status','phase_key'])
+    write_table(destination/'structure_classes.tsv',summary['classes'],['id','skeleton','status','support','hifi_support','samples','length_min','length_max','subtypes','representative'])
+    write_table(destination/'local_modules.tsv',summary['modules'],['id','kind','structure','status','support','hifi_support','exact_support','approximate_support','samples','occurrences','instances'])
+    write_table(destination/'read_assignments.tsv',summary['assignments'],['row_id','read_id','fragment_id','sample','platform','class_id','subtype_id','evidence','reason','length','module_ids','namespace','molecule'])
+    (destination/'reference_structure.json').write_text(json.dumps(reference_structure,ensure_ascii=False,indent=2),encoding='utf-8')
+    write_table(destination/'structure_nodes.tsv',graph['structure_nodes'],['id','sequence','status','support','primary_support','occurrences','samples'])
+    write_table(destination/'structure_edges.tsv',graph['edges'],['source','target','support','primary_support','occurrences','samples'])
+    write_table(destination/'patterns.tsv',graph['patterns'],['id','structure','coverage','support','primary_support','occurrences','samples'])
+    write_table(destination/'reads.tsv',[dict(r,namespace=r.get('namespace',''),molecule_key=support_key(r),fragment_count=len(r['fragments'])) for r in rows],['id','read_id','sample','platform','bam','record_count','fragment_count','status','namespace','molecule_key'])
+    write_table(destination/'read_nodes.tsv',[dict(t,read_id=r['read_id'],sample=r['sample'],namespace=r.get('namespace',''),molecule_key=support_key(r),row_id=r['id'],fragment_id=f['id'],order=i+1) for r in rows for f in r['fragments'] for i,t in enumerate(f['tokens'])],['row_id','read_id','fragment_id','order','structure_node','exact_node','motif','base','orientation','phase','phase_policy','status','qstart','qend','edit_distance','annotation_ambiguity','exact_bases','sample','namespace','molecule_key'])
+    write_table(destination/'compound_blocks.tsv',[dict(h,fragment_id=f['id']) for f in fragments for h in f['compounds']],['fragment_id','start_token','end_token','bp_start','bp_end','pattern','count','units_per_block','base_unit_count','catalog_motif','basis','exact_bases'])
+    (destination/'annotation_alternatives.json').write_text(json.dumps({f['id']:f.get('annotation',{}) for f in fragments},ensure_ascii=False,indent=2),encoding='utf-8')
+    graph_image=summary_svg(summary,locus.name)
+    (destination/f'{locus.name}.family-transitions.svg').write_text(graph_svg(graph,locus.name),encoding='utf-8')
+    (destination/f'{locus.name}.overview.svg').write_text(graph_image,encoding='utf-8')
+    svgdir=destination/'svg';svgdir.mkdir()
+    max_length=max([len(f['sequence']) for f in fragments]+[1]);links=[]
+    # Stable sample/platform/length ordering, with no read filtering.
+    ordered=sorted(rows,key=lambda r:(r['sample'],r['platform'],-max([len(f['sequence']) for f in r['fragments']]+[0]),r['read_id']))
+    for start in range(0,len(ordered),40):
+        number=start//40+1;name=f'{locus.name}.structures.{number:04d}.svg'
+        (svgdir/name).write_text(rows_svg(ordered[start:start+40],max_length,f'{locus.name} all reads | page {number} | rows {start+1}–{min(start+40,len(rows))} / {len(rows)}'),encoding='utf-8')
+        links.append(f'<li><a href="{name}">Page {number}</a></li>')
+    (svgdir/'index.html').write_text('<!doctype html><meta charset="utf-8"><h2>全部读段，无抽样</h2><ol>'+''.join(links)+'</ol>',encoding='utf-8')
+    audit['svg_pages']=len(links)
+    payload=dict(locus=asdict(locus),rows=ordered,motifs=dictionary,graph=graph,audit=audit,max_length=max_length,
+                 summary=summary,reference_structure=reference_structure)
+    (destination/f'{locus.name}.structures.json').write_text(compact(payload),encoding='utf-8')
+    (destination/'status.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
+    html=Path(__file__).with_name('structure_summary_view.html').read_text(encoding='utf-8')
+    serialized=compact(payload).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
+    (destination/f'{locus.name}.structure.html').write_text(html.replace('__TITLE__',locus.name).replace('__GRAPH__',graph_image).replace('__DATA__',serialized),encoding='utf-8')
+    return audit
+
+
+# 参考补充字典后迭代学习至多三轮，再用最终字典重新注释全部平台。
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--bam-dir',type=Path,required=True);p.add_argument('--reference',type=Path,required=True)
+    p.add_argument('--catalog',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
+    p.add_argument('--locus',required=True);p.add_argument('--samtools',default='samtools');p.add_argument('--workers',type=int,default=2)
+    p.add_argument('--variant-support',type=int,default=3);p.add_argument('--max-variants',type=int,default=256)
+    p.add_argument('--min-sample-fraction',type=float,default=.10);p.add_argument('--discovery-rounds',type=int,default=3)
+    p.add_argument('--gene-strand',choices=['+','-','unknown'],default='unknown')
+    p.add_argument('--sources',type=Path,help='Optional bam/namespace TSV; overrides RG/LB, including an empty namespace')
+    p.add_argument('--locus-model',type=Path,help='Apply a frozen locus model; disables reference/sample dictionary learning')
+    p.add_argument('--core-output',action='store_true',help='Show ordered units and actual bases; retain detailed outputs under audit/')
+    args=p.parse_args()
+    try:args.source_namespaces=load_source_namespaces(args.sources)
+    except ValueError as exc:p.error(str(exc))
+    if args.workers<1 or args.variant_support<2 or args.max_variants<1 or not 0<args.min_sample_fraction<=1 or not 1<=args.discovery_rounds<=3:p.error('Invalid workers/support/variant/discovery limits')
+    selected=[l for l in read_catalog(args.catalog) if l.name==args.locus]
+    if len(selected)!=1:p.error('Unknown locus')
+    locus=selected[0];model=None
+    if args.locus_model:
+        try:model,dictionary=load_model(args.locus_model,locus)
+        except ValueError as exc:p.error(str(exc))
+    else:dictionary=seed_dictionary(locus.motifs)
+    destination=locus_output_dir(args.out,locus.name);destination.mkdir(parents=True,exist_ok=False)
+    detail=destination/'audit' if args.core_output else destination
+    detail.mkdir(exist_ok=True)
+    if model:(detail/'locus_model.json').write_bytes(args.locus_model.read_bytes())
+    rows=[];audits=[];flank_context=None
+    with IndexedFastaReference(args.reference) as reference:
+        from vntrflankalign import build_context
+        flank_context=build_context(locus,reference)
+        reference_sequence=reference.fetch(locus.chrom,locus.start,locus.end).upper()
+        if model is None:dictionary=add_reference_units(dictionary,reference_sequence)
+        ref_start=max(0,(locus.search_start if locus.search_start is not None else locus.start)-100)
+        ref_end=min(reference.contig_length(locus.chrom),(locus.search_end if locus.search_end is not None else locus.end)+100)
+        ref_window=reference.fetch(locus.chrom,ref_start,ref_end)
+        if len(dictionary)>args.max_variants:raise ValueError('Reference motif dictionary exceeds --max-variants')
+        with (detail/'records.jsonl').open('w',encoding='utf-8') as records:
+            bams=discover_bams(args.bam_dir,locus.name)
+            if not bams:raise ValueError('No BAM input')
+            rows,audits=collect_reads(bams,locus,reference,args.samtools,records,args.source_namespaces,flank_context)
+        print(f'Discovery: {len(rows)} rows; {len(dictionary)} BED/reference motifs',flush=True)
+        candidate_audit=[]
+        hifi=[r for r in rows if r['platform']=='HiFi']
+        round_number=0
+        for round_number in range(1,(0 if model else args.discovery_rounds)+1):
+            annotate_rows(hifi,dictionary,args.workers)
+            updated,candidates=learn_variants(hifi,dictionary,args.variant_support,args.max_variants,args.min_sample_fraction)
+            candidate_audit.extend(dict(item,round=round_number) for item in candidates)
+            added=len(updated)-len(dictionary)
+            dictionary=updated
+            print(f'Discovery round {round_number}: {added} motifs added; {len(dictionary)} total',flush=True)
+            if not added:break
+        annotate_rows(rows,dictionary,args.workers,model)
+        reference_structure=reference_report(locus,reference_sequence,ref_window,ref_start,dictionary,segment,args.gene_strand,args.reference)
+    audit=dict(locus=asdict(locus),bam_count=len(bams),read_rows=len(rows),rows_with_repeat_sequence=sum(bool(r['fragments']) for r in rows),
+               rows_without_extractable_repeat=sum(not r['fragments'] for r in rows),alignment_records=sum(r['record_count'] for r in rows),bam_audits=audits,
+               motif_candidates=candidate_audit,discovery_rounds_run=round_number,
+               motif_source_counts=dict(Counter(m['source'] for m in dictionary)),
+               dictionary_mode='frozen_apply' if model else 'discover',
+               model_version=model['version'] if model else None,
+               model_sha256=sha256(args.locus_model.read_bytes()).hexdigest() if model else None,
+               mapping_context='supplied_BAM_only_not_verified_complete')
+    if flank_context:
+        from vntrflankalign import write_flank_outputs
+        audit.update(extraction_version=flank_context.model['extraction_version'],boundary_model_sha256=flank_context.model_hash)
+        (detail/'boundary_model.json').write_text(json.dumps(flank_context.model,indent=2)+'\n',encoding='utf-8')
+        write_flank_outputs(detail,rows)
+    audit=emit(detail,locus,rows,dictionary,audit,reference_structure,args.variant_support,args.min_sample_fraction)
+    if args.core_output:export_core(destination,locus,rows,dictionary,reference_structure,audit)
+    hashes={f.name:sha256(f.read_bytes()).hexdigest() for f in Path(__file__).parent.glob('vntr*.py')}
+    hashes['structure_summary_view.html']=sha256(Path(__file__).with_name('structure_summary_view.html').read_bytes()).hexdigest()
+    hashes['partition_view.html']=sha256(Path(__file__).with_name('partition_view.html').read_bytes()).hexdigest()
+    (detail/'parameters.json').write_text(json.dumps(dict(args={k:str(v) for k,v in vars(args).items()},source_hashes=hashes,catalog_sha256=sha256(args.catalog.read_bytes()).hexdigest()),ensure_ascii=False,indent=2),encoding='utf-8')
+    print(compact({k:audit[k] for k in ('locus','bam_count','read_rows','graph_fragments','dictionary_mode','unknown_fraction','sequence_reconstruction_checks_passed')}),flush=True)
+
+
+if __name__=='__main__':main()

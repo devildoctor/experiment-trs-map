@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "version": "ABCA7.GRCh38.partition.v1",
+  "locus": "ABCA7",
+  "assembly": "GRCh38",
+  "chrom": "chr19",
+  "start": 1049432,
+  "end": 1050044,
+  "boundary_status": "candidate_window",
+  "coordinate_system": "0-based half-open",
+  "orientation": "reference_forward",
+  "phase_policy": "fixed_template_phase",
+  "algorithm": "seed_dp_v2",
+  "motifs": [
+    {"id": "M1", "sequence": "CCTGTGAGCCCCCCACCACTCCCTC", "length": 25},
+    {"id": "M2", "sequence": "CCCCACCACTCCCTCCCCGTGAGCCC", "length": 26}
+  ],
+  "provenance": "Copied without rotation from grch38_structure_seeds_il1rn_per3_abca7_v1.bed. Candidate window retained; 25/26 bp are template lengths, not a claim that every observed unit has these lengths."
+}

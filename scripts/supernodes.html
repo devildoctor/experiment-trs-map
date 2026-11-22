@@ -1,0 +1,606 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VNTR 超节点图</title><style>
+*{box-sizing:border-box}body{margin:0;font:14px "Segoe UI","Microsoft YaHei",sans-serif;color:#172f39;background:#f8faf9}
+header,nav,aside{padding:12px 18px}header{display:flex;gap:22px;align-items:baseline;background:#123742;color:white}h1{font-size:20px;margin:0}nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #cad8d6;background:white}
+select,button{font:inherit;border:1px solid #b4c8c6;border-radius:5px;padding:4px;background:white}button{cursor:pointer}label{display:inline-flex;gap:4px;align-items:center}main{display:grid;grid-template-columns:minmax(0,1fr) 355px;height:calc(100vh - 100px);min-height:420px}#canvas{min-width:0;background:#f8faf9}aside{overflow:auto;border-left:1px solid #cad8d6;background:white}aside p{line-height:1.65}aside select{max-width:100%}h2{font-size:16px}ol{padding-left:22px}li{margin:8px 0}code{font:12px Consolas,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}#tools{display:flex;gap:8px;margin:10px 0}.muted{color:#516870}#meta{font-size:13px} @media(max-width:800px){main{grid-template-columns:1fr;height:auto}#canvas{height:60vh}aside{border-top:1px solid #cad8d6}}
+[hidden]{display:none!important}body{display:flex;flex-direction:column;height:100vh}
+header{justify-content:space-between}header select{color:#203e46}nav{gap:18px}
+#tracks{display:grid;grid-template-columns:1fr 1fr;background:#fff;border-bottom:1px solid #cad8d6}
+article{padding:10px 18px;min-width:0;border-left:5px solid #127c9a}article+article{border-color:#bc6550}
+article strong{margin-right:12px}article label{margin-right:8px}article p{margin:6px 0 0;line-height:1.5;font-size:13px}
+#legend{margin:0;padding:6px 18px;color:#435d65;background:#eef4f3}
+main{flex:1;min-height:240px;height:auto}#canvas{min-height:200px}
+details{margin:10px 0}summary{cursor:pointer}details pre{max-height:160px;overflow:auto}
+@media(max-width:800px){body{height:auto}#tracks{grid-template-columns:1fr}#canvas{min-height:350px}}
+#scope{position:relative;margin:0}#scope div{position:absolute;z-index:10;background:white;border:1px solid #b4c8c6;padding:8px;width:220px}#range{width:100%}#tools{flex-wrap:wrap}article,article+article{border-color:#78918f}
+</style><header><h1 id="title"></h1><label>视图<select id="view"><option value="five">五路径位点图</option><option value="overview">全局总览</option><option value="compare">双路径比较</option></select></label></header>
+<nav><label id="globalSample" hidden>总览样本<select id="sample"></select></label>
+<details id="scope"><summary>显示路径范围</summary><div><label for="range">多选路径（Ctrl / Shift）</label><select multiple id="range" size="8"></select><button id="allPaths">显示全部路径</button></div></details>
+<label id="traceChoice">高亮路径<select id="tracePath"></select></label><label>序列<select id="mode"><option value="original">原始</option><option value="represented">展示</option></select></label>
+<button id="fit">适应视图</button><span id="meta" aria-live="polite"></span></nav>
+<div id="tracks"><article><strong>A 行</strong><label>样本<select id="sampleA"></select></label><label>样本支持的登记路径<select id="pathA"></select></label><p id="statsA"></p></article>
+<article><strong>B 行</strong><label>样本<select id="sampleB"></select></label><label>样本支持的登记路径<select id="pathB"></select></label><p id="statsB"></p></article></div>
+<p id="legend"></p><main><div id="canvas"></div><aside><h2 id="name">访问详情</h2><p id="info"></p><label id="vlabel" hidden>访问<select id="visit"></select></label><div id="tools"><button id="toggle" hidden></button><button id="focusBlock" hidden>聚焦区块</button></div><div id="details"></div></aside></main>
+<style>
+body.five > nav,body.five > main,body.five > #tracks,body.five > #legend{display:none}
+#fivePanel{min-height:0;overflow:auto;flex:1;background:#f4f7f6}
+#fivePanel nav{position:sticky;top:0;z-index:2;gap:12px}#fiveSlots{display:flex;gap:8px;flex-wrap:wrap}
+#fiveSlots label{border-bottom:4px solid;padding:2px 0;font-variant-numeric:tabular-nums}
+#fiveSummary{margin:0;color:#24434d}#fiveCanvas{padding:0 14px 10px}
+.fiveRow{width:100%;display:block;background:white;border:1px solid #d2dedf;border-radius:8px;margin:8px 0}
+.fiveRow text{font:11px "Segoe UI","Microsoft YaHei",sans-serif;fill:#1c3541}
+.fiveRow .seq{font:11px Consolas,monospace}.fiveRow .unit{font-size:13px;font-weight:650}
+.fiveRow [data-paths]{cursor:pointer}.fiveRow .dim{opacity:.12}
+.structRow{background:white;margin:7px 14px;padding:9px 11px;border-left:4px solid}.structRow h3{margin:0 0 4px;font-size:15px}.structWalk{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.structWalk button{font:12px monospace;background:#edf6f1;border:1px solid #608e80;border-radius:4px;padding:4px 6px;cursor:pointer}.structWalk button.local{border-style:dashed;background:#f6f2ec}.structRow small{color:#48605b}.structRow.dim{opacity:.25}#blockEvidence{overflow-wrap:anywhere;white-space:pre-wrap}#fivePanel details{background:white;padding:8px 14px}#fivePanel pre{overflow-wrap:anywhere;white-space:pre-wrap}
+#fivePanel .rowLabel{fill:#526b73}.fiveRow .branch{font-size:10px}
+
+</style>
+<section id="fivePanel" hidden><nav><strong id="fiveSummary"></strong><div id="fiveSlots"></div>
+<label>高亮<select id="fiveTrace"></select></label></nav>
+<div style="padding:7px 14px"><label>比较原串 <select id="fiveBase"></select></label> 与 <select id="fiveOther" aria-label="第二条比较路径"></select>　<strong id="fiveDifference"></strong></div>
+<div id="fiveRoutes" aria-label="按登记顺序排列的结构块"></div>
+<details id="fiveLiteral"><summary>展开所选路径的原始 GFA 步序</summary><div id="fiveCanvas" aria-label="所选路径的原始序列图"></div></details>
+<details id="fiveJunctions"><summary>核对有分子支持、连续走法未登记的相邻边</summary><select id="fiveJunction"></select><p id="junctionCounts"></p></details>
+<details id="fiveEvidence"><summary>路径序列与两两对齐</summary><p id="fiveStats"></p><pre id="fiveDNA"></pre><pre id="fiveAlignment"></pre></details></section>
+<script>/* CYTOSCAPE */</script><script>/* COMPARE */</script><script>/* PROJECTION */</script><script>
+'use strict';
+const data=/* DATA */;
+const el=id=>document.getElementById(id), paths=data.paths, nodes=data.graph.nodes;
+const expandedSupernodes=new Set(),expandedStates=new Set(),byId=new Map(),anchors=new Map(),positions=new Map();
+let projection=null,focusedPathId=null;
+const pathColors=new Map(Object.keys(paths).sort().map((p,i)=>[p,'hsl('+Math.round((i*137.508+200)%360)+',62%,40%)']));
+const tracks=['A','B'];
+const isCompare=()=>el('view').value==='compare';
+let focused=null, pairFocus=null;
+const selections=()=>tracks.map(t=>({sample:el('sample'+t).value,path:el('path'+t).value}));
+const option=(select,value,label)=>select.add(new Option(label,value));
+for(const id of ['sample','sampleA','sampleB']){
+  option(el(id),'','全部样本');
+  for(const s of [...new Set(Object.values(data.samples).flatMap(Object.keys))].sort())option(el(id),s,s);
+}
+function supported(p,sample){
+  return data.path_info[p].role==='reference' || !sample || data.samples[p][sample]?.length>0;
+}
+function selectPaths(track){
+  const select=el('path'+track),previous=select.value;
+  select.replaceChildren();option(select,'','选择路径');
+  for(const p of Object.keys(paths).filter(p=>supported(p,el('sample'+track).value))){
+    option(select,p,p+(data.path_info[p].role==='reference'?' · REF':''));
+  }
+  if([...select.options].some(o=>o.value===previous))select.value=previous;
+}
+tracks.forEach(selectPaths);
+el('title').textContent=data.graph.locus+' 重复结构';
+const pattern=n=>n.ordered_pattern.map(k=>k[0]).join('·');
+
+function stateLabel(n,v){
+  if(n.ordered_pattern[0][3]==='unknown')return '未解析';
+  if(n.ordered_pattern[0][3]==='partial')return '部分单元';
+  if(v.structure_assessment==='ambiguous')return '结构歧义';
+  if(v.boundary_assessment==='ambiguous')return '边界歧义';
+  if(n.protected)return n.ordered_pattern[0][4]==='right_terminal'?'末端':v.structure_assessment==='not_assessed'?'未评估':'受保护中断';
+  if(v.boundary_assessment!=='invariant_within_model')return '边界未定';
+  if(v.position_assessment==='path_local')return '路径局部';
+  return '';
+}
+for(const vs of Object.values(paths)){
+  const total=vs.at(-1).original_interval[1];
+  for(const v of vs){
+    byId.set(v.visit_id,v);
+    const bucket=positions.get(v.supernode_id)||[];
+    bucket.push((v.original_interval[0]+v.original_interval[1])/(2*total));
+    positions.set(v.supernode_id,bucket);
+  }
+}
+for(const [sn,pos] of positions){pos.sort((a,b)=>a-b);anchors.set(sn,pos[Math.floor(pos.length/2)]*6200)}
+function updateRange(){
+  const keep=new Set(Array.from(el('range').selectedOptions,o=>o.value));
+  el('range').replaceChildren();
+  for(const p of Object.keys(paths)){
+    const ok=supported(p,el('sample').value);
+    option(el('range'),p,p+(ok?'':' · 当前样本无支持'));
+    const entry=el('range').lastChild;entry.disabled=!ok;entry.selected=keep.has(p);
+  }
+}
+updateRange();
+const cy=cytoscape({container:el('canvas'),elements:[],layout:{name:'preset'},minZoom:.009,maxZoom:5,
+  style:[
+    {selector:'node',style:{'label':'data(label)','width':120,'height':34,'shape':'round-rectangle','background-color':'#528a83','color':'#12343a','text-valign':'bottom','text-margin-y':2,'text-wrap':'wrap','font-size':12,'min-zoomed-font-size':6}},
+    {selector:'node[flag="opaque"]',style:{'background-color':'#ad9470','shape':'diamond'}},
+    {selector:'node[flag="ambiguous"]',style:{'background-color':'#a190bc','shape':'hexagon'}},
+    {selector:'node[flag="unassessed"]',style:{'background-color':'#a4aeb2','shape':'diamond'}},
+    {selector:'node[flag="protected"]',style:{'border-width':2,'border-color':'#81515e'}},
+    {selector:'node[flag="loss"]',style:{'border-width':4,'border-color':'#cb5a2b'}},
+    {selector:'node[flag="child"]',style:{'background-color':'#8ab1b7','shape':'rectangle','font-family':'monospace','width':130}},
+    {selector:'edge',style:{'width':1,'curve-style':'bezier','target-arrow-shape':'triangle','line-color':'#b5c6c6','target-arrow-color':'#b5c6c6','opacity':.7}},
+    {selector:'edge.correspondence',style:{'line-style':'dashed','width':2,'line-color':'#6b647b','target-arrow-shape':'none','opacity':0.9}},
+    {selector:'node',style:{'background-color':'#ecf1f0','color':'#193640','border-color':'#8ba09f','border-width':1,'text-valign':'center','text-margin-y':0,'text-max-width':170,'text-wrap':'ellipsis','width':178,'height':46}},
+    {selector:'node.pair',style:{'text-wrap':'wrap','height':58}},
+    {selector:'node[view_kind="copy"]',style:{'width':134,'height':58,'font-size':11,'text-max-width':130,'text-wrap':'wrap'}},
+    {selector:'node[view_kind="state"]',style:{'width':202,'height':'data(state_height)'}},
+    {selector:':parent',style:{'shape':'round-rectangle','padding':'13px','background-color':'#e3eeed','background-opacity':0.45,'text-valign':'top','font-weight':'bold','text-background-opacity':1,'text-background-color':'#f8faf9'}},
+    {selector:'node[flag="loss"]',style:{'border-width':3,'border-color':'#bf633d'}},
+    {selector:'edge.trace,edge.a,edge.b',style:{'line-color':'data(color)','target-arrow-color':'data(color)','width':2.2,'opacity':0.82}},
+    {selector:'edge.trace',style:{'source-endpoint':'data(outlet)','target-endpoint':'data(inlet)'}},
+    {selector:'.dim',style:{'opacity':0.12}},
+    {selector:'edge.onRoute',style:{'width':4,'opacity':1,'z-index':15}},
+    {selector:'node.onRoute',style:{'border-width':3,'border-color':'#203f51','z-index':10}}
+
+  ]});
+function layoutOverview(items,graph){
+  // Dimensions include Cytoscape's compound padding and both container titles.
+  const boxes=[];
+  for(const block of graph.blocks.values()){
+    const sn=block.sn,leaves=[];
+    let width=210,height=70;
+    if(!expandedSupernodes.has(sn))leaves.push([summaryId(sn),0,35]);
+    else{
+      height=52;width=248;
+      for(const sid of block.state_ids){
+        const state=graph.states.get(sid);
+        if(!expandedStates.has(sid)){
+          const h=items.get(sid).data.state_height;
+          leaves.push([sid,0,height+h/2]);height+=h+30;
+          continue;
+        }
+        height+=48;
+        for(const vid of state.member_visit_ids){
+          const v=byId.get(vid),n=v.ordered_occurrence_ids.length;
+          width=Math.max(width,n*162+90);
+          v.ordered_occurrence_ids.forEach((oid,i)=>leaves.push([copyId(vid,oid),(i-(n-1)/2)*162,height+30]));
+          height+=84;
+        }
+        height+=28;
+      }
+      height+=18;
+    }
+    boxes.push({sn,x:anchors.get(sn),width,height,leaves});
+  }
+  // Interval packing, followed by the height of the tallest block in each lane.
+  boxes.sort((a,b)=>(a.x-a.width/2)-(b.x-b.width/2)||a.sn.localeCompare(b.sn));
+  const lanes=[];
+  for(const box of boxes){
+    let lane=lanes.find(l=>l.right+32<=box.x-box.width/2);
+    if(!lane){lane={height:0,boxes:[]};lanes.push(lane)}
+    lane.right=box.x+box.width/2;lane.height=Math.max(lane.height,box.height);lane.boxes.push(box);
+  }
+  let y=0;
+  for(const lane of lanes){
+    for(const box of lane.boxes)for(const [id,dx,dy] of box.leaves)items.get(id).position={x:box.x+dx,y:y+dy};
+    y+=lane.height+35;
+  }
+}
+function overview(){
+  const selected=Array.from(el('range').selectedOptions,o=>o.value);
+  projection=projectStateGraph(data,{pathIds:selected.length?selected:null,sample:el('sample').value,
+    mode:el('mode').value,expandedSupernodes,expandedStates});
+  const items=new Map(),mode=el('mode').value;
+  for(const d of projection.nodes.values()){
+    const state=projection.states.get(d.state_id),block=projection.blocks.get(d.sn),n=nodes[d.sn];
+    let caption=pattern(n),flag='';
+    if(d.view_kind==='copy'){
+      const motif=n.ordered_pattern[d.index%n.ordered_pattern.length][0];
+      const dna=d.dna.length>16?d.dna.slice(0,14)+'…':d.dna;
+      caption=d.visit_id+' · '+(d.index+1)+' '+motif+'\n'+dna;
+      if(mode==='represented' && d.changed)flag='loss';
+    }else if(state){
+      caption+=' ×'+state.repeat_count;
+      if(mode==='represented' && state.changed_visit_ids.length)flag='loss';
+    }else{
+      caption+=' ×{'+block.state_ids.map(id=>projection.states.get(id).repeat_count).join(',')+'}';
+      if(n.protected)flag='protected';
+    }
+    const entry={...d,label:caption,flag};
+    if(d.view_kind==='state')entry.state_height=Math.max(60,Math.ceil(6.5*d.port_count+16));
+    items.set(d.id,{data:entry});
+  }
+  layoutOverview(items,projection);
+  for(const e of projection.edges)items.set(e.id,{data:{...e,color:pathColors.get(e.path_id)},classes:'trace'});
+  apply(items);
+  const selector=el('tracePath');selector.replaceChildren();option(selector,'','无');
+  for(const p of projection.routes.keys())option(selector,p,p);
+  if(!projection.routes.has(focusedPathId))focusedPathId=null;
+  selector.value=focusedPathId||'';
+  highlight();
+  el('meta').textContent=projection.support.path_count+' 条登记路径 · '+projection.support.molecule_count+' 个独立分子';
+  el('legend').textContent=projection.routes.size?'彩线按登记路径连接。点击区块展开次数状态，再点击状态查看各次访问的拷贝。':'所选范围内没有当前样本支持的路径，可调整样本或显示路径范围。';
+  if(focused)overviewDetail(focused,el('visit').value);
+}
+function highlight(){
+  const p=focusedPathId,ids=new Set();
+  if(p){
+    for(const v of projection.routes.get(p)||[])for(const id of v.display_node_ids){
+      ids.add(id);
+      for(let n=projection.nodes.get(id);n?.parent;n=projection.nodes.get(n.parent))ids.add(n.parent);
+    }
+  }
+  cy.batch(()=>cy.elements().forEach(e=>{
+    const on=!!p && (e.isEdge()?e.data('path_id')===p:ids.has(e.id()));
+    e.toggleClass('onRoute',on);e.toggleClass('dim',!!p && !on);
+  }));
+}
+function apply(items){
+  cy.batch(()=>{
+    for(const collection of [cy.edges(),cy.nodes()])collection.filter(e=>!items.has(e.id())).remove();
+    // The projection inserts containers before their descendants. An edge always follows both endpoints.
+    const entries=[...items.values()];
+    for(const e of [...entries.filter(e=>!e.data.source),...entries.filter(e=>e.data.source)]){
+      let item=cy.getElementById(e.data.id);
+      if(item.empty())item=cy.add(e);
+      else{
+        const {id,parent,source,target,...mutable}=e.data;
+        item.data(mutable);item.classes(e.classes||'');
+      }
+      if(e.position && item.isNode() && !e.data.view_kind?.endsWith('container'))item.position(e.position);
+    }
+  });
+}
+function compare(){
+  const choices=selections(),support=selectionSupport(choices,data.path_info,data.samples);
+  const rows=choices.map(c=>paths[c.path]||[]),same=!!choices[0].path && choices[0].path===choices[1].path;
+  const pairs=correspondingVisits(rows[0],rows[1],same), cols=layoutVisits(rows[0].length,rows[1].length,pairs,218);
+  const items=new Map(), ids=[[],[]], represented=el('mode').value==='represented';
+  function add(e){items.set(e.data.id,e)}
+  tracks.forEach((track,k)=>{
+    const {path}=choices[k],info=data.path_info[path];
+    el('stats'+track).parentElement.style.borderColor=pathColors.get(path)||'#78918f';
+    el('stats'+track).textContent=info?[
+      support.perTrack[k].length+' 个独立分子',info.length+' bp',
+      '实际改写 '+info.edited_bp+' bp（'+(info.fraction*100).toFixed(2)+'%）',
+      '预算 '+info.budget_bp+' bp',info.represented_is_observed_whole_sequence?'展示整串见于原始 OBS':'展示整串未见于原始 OBS'
+    ].join(' · '):'请选择登记路径';
+    rows[k].forEach((v,i)=>{
+      const n=nodes[v.supernode_id],id=JSON.stringify([track,path,v.visit_id]),status=stateLabel(n,v);
+      const flag=represented && v.loss_event_ids.length?'loss':n.protected?'protected':'';
+      ids[k].push(id);
+      const symbol=n.ordered_pattern.length>1?'('+pattern(n)+')':pattern(n);
+      const caption=[symbol+' ×'+v.repeat_count,status,v.loss_event_ids.length?'改写 '+v.loss_event_ids.length+' bp':''].filter(Boolean).join('\n');
+      add({data:{id,track,visit:v.visit_id,sn:n.id,flag,label:caption},classes:'pair '+track.toLowerCase(),
+           position:{x:cols[k][i],y:k*175}});
+      if(i)add({data:{id:displayId('walk',track,path,i),source:ids[k][i-1],target:id,color:pathColors.get(path)},classes:track.toLowerCase()});
+    });
+  });
+  for(const [i,j] of pairs)add({data:{id:displayId('correspondence',ids[0][i],ids[1][j]),source:ids[0][i],target:ids[1][j]},classes:'correspondence'});
+  apply(items);
+  el('meta').textContent=support.paths+' 条登记路径 · '+support.molecules+' 个独立分子（并集）';
+  const message=choices.some(c=>!c.path)?'请选择 A、B 两行的登记路径':
+    same?'虚线为同一登记来源的同一次访问':
+    pairs.length?'虚线为当前模型中的结构位置对应（'+pairs.length+' 对）':'对应尚未确定';
+  el('legend').textContent=message+'。实线为各行访问顺序；横坐标表示排版位置。';
+  if(pairFocus)detail(byId.get(pairFocus.visit).supernode_id,pairFocus.visit,pairFocus.track);
+}
+function resetDetails(){
+  focused=null;pairFocus=null;el('details').replaceChildren();el('vlabel').hidden=true;el('toggle').hidden=true;el('focusBlock').hidden=true;
+  el('name').textContent='访问详情';el('info').textContent='点击图中的访问查看单元序列和 GFA 节点。';
+}
+function detail(id,preferred,track){
+  const n=nodes[id],choice=byId.get(preferred);
+  pairFocus={track,visit:preferred};el('details').replaceChildren();
+  el('name').textContent=track+' 行 · '+choice.path_id+' · '+choice.visit_id;
+  el('vlabel').hidden=true;el('toggle').hidden=true;
+  el('info').textContent=pattern(n)+' ×'+choice.repeat_count+' · 全体支持 '+n.path_count+' 条路径 / '+n.molecule_count+' 个分子 / '+n.visit_count+' 次访问';
+  unitDetails(n,choice,el('sample'+track).value);
+}
+function unitDetails(n,choice,sample,index=null){
+  const info=document.createElement('p');
+  info.textContent='边界 '+choice.boundary_assessment+' · 结构 '+choice.structure_assessment+' · 位置 '+choice.position_assessment+' · 内部单元对应 '+choice.homology_assessment;
+  el('details').append(info);
+  const keys=selectionSupport([{path:choice.path_id,sample}],data.path_info,data.samples).perTrack[0];
+  const evidence=document.createElement('details'),heading=document.createElement('summary'),members=document.createElement('pre');
+  heading.textContent='来源分子 · '+(sample||'全部样本')+'（'+keys.length+'）';members.textContent=keys.join('\n')||'REF 无分子支持';
+  evidence.append(heading,members);el('details').append(evidence);
+  const ol=document.createElement('ol');
+  choice.ordered_occurrence_ids.forEach((oid,i)=>{
+    if(index!==null && i!==index)return;
+    const li=document.createElement('li'),code=document.createElement('code'),ori=data.variants[choice.original_variant_ids[i]],rep=data.variants[choice.represented_variant_ids[i]];
+    const unit=n.ordered_pattern[i%n.ordered_pattern.length];
+    const mode=el('mode').value;
+    li.value=i+1;code.textContent=oid+' '+unit[0]+' '+unit[4]+' '+unit[3]+'\n'+(mode==='original'?'当前 · 原始':'原始')+' '+ori+' · S'+choice.original_gfa_walk[i]+'\n'+(mode==='represented'?'当前 · 展示':'展示')+' '+rep+' · S'+choice.represented_gfa_walk[i];
+    code.style.whiteSpace='pre-wrap';li.append(code);
+    for(const eid of choice.loss_event_ids){
+      const e=data.losses[eid];if(e.occurrence_id!==oid)continue;
+      const line=document.createElement('div');line.textContent='S @'+e.ostart+' '+e.original+' → '+e.represented+' · 代表 '+e.representative_occurrence;li.append(line);
+    }
+    ol.append(li);
+  });
+  el('details').append(ol);
+}
+function overviewDetail(id,preferred){
+  const e=cy.getElementById(id);if(!e.length){resetDetails();return}
+  focused=id;el('vlabel').hidden=true;el('toggle').hidden=true;el('focusBlock').hidden=true;el('details').replaceChildren();
+  const d=e.data(),sample=el('sample').value;
+  if(e.isEdge()){
+    const p=d.path_id,keys=selectionSupport([{path:p,sample}],data.path_info,data.samples).perTrack[0];
+    el('name').textContent=p+' · 路径连线 '+(d.step_index+1);
+    el('info').textContent=d.from_visit_id+' → '+d.to_visit_id+' · '+keys.length+' 个独立分子';
+    const pre=document.createElement('pre');pre.textContent=keys.join('\n');el('details').append(pre);return;
+  }
+  const n=nodes[d.sn],s=projection.states.get(d.state_id),group=s||projection.blocks.get(d.sn);
+  el('focusBlock').hidden=false;
+  if(d.view_kind==='copy'){
+    el('name').textContent=d.visit_id+' · 第 '+(d.index+1)+' 个单元';
+    el('info').textContent=d.path_id+' · '+d.occurrence_id;
+    unitDetails(n,byId.get(d.visit_id),sample,d.index);return;
+  }
+  el('name').textContent=s?pattern(n)+' ×'+s.repeat_count:pattern(n)+' · 结构区块';
+  const counts=projection.blocks.get(d.sn).state_ids.map(id=>projection.states.get(id).repeat_count);
+  const original=el('mode').value==='original';
+  el('info').textContent=(s?(original?'当前原始序列 ':'原始序列 ')+s.original_sequence_count+' 型 · '+(original?'展示序列 ':'当前展示序列 ')+s.represented_sequence_count+' 型 · '+s.changed_visit_ids.length+' 次访问含改写':
+    '当前登记次数集合 {'+counts.join(',')+'}')+' · '+group.visit_count+' 次访问 / '+group.path_count+' 条路径 / '+group.molecule_count+' 个独立分子';
+  const btn=el('toggle');btn.hidden=false;
+  btn.textContent=s?(expandedStates.has(s.state_id)?'收起该状态的拷贝':'展开该状态的拷贝'):
+    (expandedSupernodes.has(d.sn)?'收起结构状态':'展开结构状态');
+  const select=el('visit');select.replaceChildren();
+  for(const vid of group.member_visit_ids)option(select,vid,vid+' ×'+byId.get(vid).repeat_count);
+  select.value=group.member_visit_ids.includes(preferred)?preferred:group.member_visit_ids[0];
+  el('vlabel').hidden=false;unitDetails(n,byId.get(select.value),sample);
+}
+cy.on('tap','node,edge',event=>{
+  const e=event.target;
+  if(isCompare()){if(e.isNode())detail(e.data('sn'),e.data('visit'),e.data('track'));return}
+  if(e.isEdge()){focusedPathId=e.data('path_id');el('tracePath').value=focusedPathId;highlight()}
+  overviewDetail(e.id());
+});
+function refresh(){if(isCompare())compare();else overview()}
+function startView(){
+  const five=el("view").value==="five";document.body.classList.toggle("five",five);el("fivePanel").hidden=!five;
+  if(five){drawFive();return}
+
+  resetDetails();el('tracks').hidden=!isCompare();el('globalSample').hidden=isCompare();el('scope').hidden=isCompare();el('traceChoice').hidden=isCompare();
+  refresh();cy.resize();
+  if(isCompare()){
+    const left=cy.nodes().length?Math.min(...cy.nodes().map(n=>n.position('x'))):0;
+    cy.viewport({zoom:1,pan:{x:110-left,y:Math.max(55,cy.height()/2-85)}});
+  }else cy.fit(cy.elements(),30);
+}
+for(const track of tracks){
+  el('sample'+track).onchange=()=>{selectPaths(track);startView()};
+  el('path'+track).onchange=startView;
+}
+el('view').onchange=startView;el('sample').onchange=()=>{updateRange();startView()};
+el('range').onchange=startView;
+el('allPaths').onclick=()=>{el('range').selectedIndex=-1;el('scope').open=false;startView()};
+el('tracePath').onchange=()=>{focusedPathId=el('tracePath').value||null;highlight()};
+el('mode').onchange=()=>{
+  const aside=document.querySelector('aside'),scroll=aside.scrollTop,opened=el('details').querySelector('details')?.open;
+  refresh();
+  const evidence=el('details').querySelector('details');if(evidence)evidence.open=!!opened;
+  aside.scrollTop=scroll;
+};
+el('visit').onchange=()=>overviewDetail(focused,el('visit').value);
+el('toggle').onclick=()=>{
+  const d=cy.getElementById(focused).data(),s=projection.states.get(d.state_id);
+  if(s){
+    if(expandedStates.delete(s.state_id))focused=s.state_id;
+    else{expandedStates.add(s.state_id);focused=stateContainerId(d.sn,s.repeat_count)}
+  }else if(expandedSupernodes.delete(d.sn))focused=summaryId(d.sn);
+  else{expandedSupernodes.add(d.sn);focused=containerId(d.sn)}
+  overview();
+};
+el('focusBlock').onclick=()=>{
+  const sn=cy.getElementById(focused).data('sn'),block=cy.getElementById(expandedSupernodes.has(sn)?containerId(sn):summaryId(sn));
+  if(block.length)cy.fit(block.union(block.descendants()),35);
+};
+el('fit').onclick=()=>{if(cy.elements().length)cy.fit(cy.elements(),30)};
+const palette=['#0072B2','#D55E00','#009E73','#CC79A7','#E69F00'];
+const choices=[], pathIds=Object.keys(paths).filter(p=>data.path_info[p].role==='observation');
+let fiveWalks=new Map();
+for(let i=0;i<5;i++){
+  const label=document.createElement('label'),select=document.createElement('select');
+  label.textContent=String(i+1);label.style.borderColor=palette[i];
+  option(select,'','未选');for(const p of pathIds)option(select,p,p+' · '+data.path_info[p].length+' bp');
+  select.value=pathIds[i]||'';choices.push(select);label.append(select);el('fiveSlots').append(label);
+  select.onchange=drawFive;
+}
+function fiveWalk(p){
+  return paths[p].flatMap(v=>{
+    let start=v.original_interval[0];
+    return v.original_gfa_walk.map((id,i)=>{
+      const dna=data.variants[v.original_variant_ids[i]],pattern=nodes[v.supernode_id].ordered_pattern;
+      const step={id:String(id),dna,start,unit:pattern[i%pattern.length][0],unknown:pattern[i%pattern.length][3]==="unknown"};
+      start+=dna.length;return step;
+    });
+  });
+}
+function drawStructureRows(ids,colors){
+  const root=el('fiveRoutes');root.replaceChildren();
+  const selectedUse=new Map();
+  for(const id of ids)for(const v of paths[id]){
+    if(!selectedUse.has(v.supernode_id))selectedUse.set(v.supernode_id,new Set());
+    selectedUse.get(v.supernode_id).add(id);
+  }
+  for(const p of ids){
+    const info=data.path_info[p],section=document.createElement('section');
+    section.className='structRow';section.dataset.path=p;section.style.borderColor=colors.get(p);
+    const title=document.createElement('h3'),meta=document.createElement('small'),walk=document.createElement('div');
+    title.textContent=p+' · '+info.length+' bp · '+info.molecule_keys.length+' 个支持分子';
+    const allOuterLocal=paths[p].every(v=>v.position_assessment==='path_local' && v.boundary_assessment==='uncertain_outer');
+    meta.textContent=(allOuterLocal?'全部块为路径局部（外切点未定） · ':'原始结构 · ')+paths[p].length+' 次块访问 · 切点有并列 '+info.boundary_tied+'/'+info.boundary_assessed+' 个已评估分子 · 表示串改写 '+info.edited_bp+' bp';
+    walk.className='structWalk';
+    for(const v of paths[p]){
+      const node=nodes[v.supernode_id],button=document.createElement('button');
+      const local=v.position_assessment==='path_local';
+      button.className=local?'local':'';button.dataset.visit=v.visit_id;
+      const shared=[...selectedUse.get(v.supernode_id)];
+      const position=local?'路径局部':shared.length>1?'所选共享':node.path_count>1?'全图共享':'已定位';
+      const status=v.boundary_assessment==='uncertain_outer'?'外切点未定':stateLabel(node,v);
+      const note=allOuterLocal?'':position+(status && status!==position?' / '+status:'');
+      button.textContent=pattern(node)+' ×'+v.repeat_count+(note?' · '+note:'');
+      button.title='所选路径 '+shared.join('、')+' · 全图 '+node.path_count+' 条登记 P · '+position;
+      button.onclick=()=>{
+        const original=v.original_variant_ids.map(k=>data.variants[k]).join('');
+        const represented=v.represented_variant_ids.map(k=>data.variants[k]).join('');
+        const edits=[];for(let i=0;i<original.length;i++)if(original[i]!==represented[i])edits.push((v.original_interval[0]+i)+' '+original[i]+'→'+represented[i]);
+        el('blockEvidence').textContent=p+' · '+v.supernode_id+' · ['+v.original_interval+') · '+button.title+'\n原始 '+original+'\n表示 '+represented+'\n原始 GFA '+v.original_gfa_walk.join(' → ')+(edits.length?'\n0 起点改写 '+edits.join('，'):'');
+      };
+      if(walk.childElementCount)walk.append('→');walk.append(button);
+    }
+    section.append(title,meta,walk);root.append(section);
+  }
+  const detail=document.createElement('pre');detail.id='blockEvidence';root.append(detail);
+}
+let junctions;
+el('fiveJunctions').ontoggle=()=>{
+  if(!el('fiveJunctions').open || junctions)return;
+  junctions=untraversedJunctions(data.graph.edges,paths);
+  const select=el('fiveJunction');
+  junctions.forEach((j,i)=>option(select,String(i),j.left+' / '+j.right+' 分子 · '+j.route[1]));
+  select.onchange=()=>{const j=junctions[Number(select.value)];el('junctionCounts').textContent=j?j.route.join(' → ')+' · 两条边分别有 '+j.left+'、'+j.right+' 个支持分子 · 连续经过的登记 P 为 0':'未发现这类相邻边';};
+  select.onchange();
+};
+function showFiveDetails(){
+  const p=el('fiveTrace').value,w=fiveWalks.get(p)||[];
+  el('fiveDNA').textContent=w.map(s=>s.dna).join('');
+  el('fiveStats').textContent=p?p+' · '+data.path_info[p].length+' bp · '+data.path_info[p].molecule_keys.length+' 个支持分子 · '+Object.keys(data.samples[p]).join('、'):'选择路径以查看序列';
+  for(const e of el('fiveCanvas').querySelectorAll('[data-paths]'))
+    e.classList.toggle('dim',!!p&&!e.getAttribute('data-paths').split(' ').includes(p));
+  for(const row of el('fiveRoutes').querySelectorAll('.structRow'))row.classList.toggle('dim',!!p&&row.dataset.path!==p);
+  const base=el('fiveBase').value,q=el('fiveOther').value;
+  const a=(fiveWalks.get(base)||[]).map(s=>s.dna).join(''),b=(fiveWalks.get(q)||[]).map(s=>s.dna).join('');
+  const pair=base&&q&&base!==q;
+  el('fiveDifference').textContent=pair?describeRawDifference(a,b):'请选择两条不同的路径';
+  el('fiveAlignment').textContent=pair&&el('fiveEvidence').open?alignFive(a,b):'';
+}
+// Unit-cost global edit alignment. Retain ties on the displayed traceback.
+function describeRawDifference(a,b){
+  const difference=rawDifference(a,b);
+  return difference.lengthDifference===0?'原串等长，逐位差异 '+difference.mismatches+' 处':'原串长度相差 '+difference.lengthDifference+' bp，单段删除可匹配的起点 '+difference.starts+' 个'+(difference.starts?'（0 起点 '+difference.first+' 至 '+difference.last+'）':'');
+}
+function alignFive(a,b){
+  const measure=describeRawDifference(a,b);
+  const d=Array.from({length:a.length+1},()=>new Uint32Array(b.length+1));
+  for(let i=0;i<=a.length;i++)d[i][0]=i;
+  for(let j=0;j<=b.length;j++)d[0][j]=j;
+  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)
+    d[i][j]=Math.min(d[i-1][j-1]+Number(a[i-1]!==b[j-1]),d[i-1][j]+1,d[i][j-1]+1);
+  let i=a.length,j=b.length,tie=false,x=[],y=[];
+  while(i||j){
+    const v=d[i][j],diag=i&&j&&v===d[i-1][j-1]+Number(a[i-1]!==b[j-1]),up=i&&v===d[i-1][j]+1,left=j&&v===d[i][j-1]+1;
+    if(Number(diag)+Number(up)+Number(left)>1)tie=true;
+    if(diag){x.push(a[--i]);y.push(b[--j])}else if(up){x.push(a[--i]);y.push('-')}else{x.push('-');y.push(b[--j])}
+  }
+  x.reverse();y.reverse();const rows=[measure,tie?'存在等价对齐，显示其中一种':'全局最小编辑对齐'];
+  for(let k=0;k<x.length;k+=28){const u=x.slice(k,k+28),v=y.slice(k,k+28);rows.push(u.join(''),u.map((c,h)=>c===v[h]?'·':'^').join(''),v.join(''),'')}
+  return rows.join('\n');
+}
+const svgNS='http://www.w3.org/2000/svg';
+function mark(parent,type,attrs,caption){
+  const e=document.createElementNS(svgNS,type);
+  for(const [key,value] of Object.entries(attrs))e.setAttribute(key,value);
+  if(caption!==undefined)e.textContent=caption;
+  parent.append(e);return e;
+}
+function drawFive(){
+  const ids=choices.map(s=>s.value).filter(Boolean),colors=new Map(choices.map((s,i)=>[s.value,palette[i]]));
+  for(const s of choices)for(const o of s.options)o.disabled=!!o.value&&o.value!==s.value&&ids.includes(o.value);
+  fiveWalks=new Map(ids.map(p=>[p,fiveWalk(p)]));
+  drawStructureRows(ids,colors);
+  for(const key of ['fiveTrace','fiveBase','fiveOther']){
+    const s=el(key),old=s.value;s.replaceChildren();option(s,'',key==='fiveTrace'?'全部':'未选');
+    for(const p of ids)option(s,p,p);
+    s.value=ids.includes(old)?old:key==='fiveBase'?(ids[0]||''):key==='fiveOther'?(ids[1]||''):'';
+  }
+  const root=el('fiveCanvas');root.replaceChildren();
+  el('fiveSummary').textContent=data.graph.locus+' · '+ids.length+' 条路径';
+  if(!ids.length){root.textContent='请选择路径';showFiveDetails();return}
+  // Rank only visited GFA segments. Cyclic input retains a distinct displayed occurrence per step.
+  const graph=new Map();
+  function indexWalks(unroll){
+    graph.clear();
+    for(const [p,walk] of fiveWalks){
+      let previous;
+      walk.forEach((s,i)=>{
+        s.key=unroll?p+':'+i:s.id;
+        if(!graph.has(s.key))graph.set(s.key,{step:s,visits:[],next:new Set(),degree:0,rank:0});
+        const n=graph.get(s.key);n.visits.push({p,s});
+        if(previous&&!previous.next.has(n)){previous.next.add(n);n.degree++}
+        previous=n;
+      });
+    }
+    const queue=[...graph.values()].filter(n=>!n.degree);
+    for(let i=0;i<queue.length;i++)for(const n of queue[i].next){
+      n.rank=Math.max(n.rank,queue[i].rank+1);
+      if(--n.degree===0)queue.push(n);
+    }
+    return queue.length===graph.size;
+  }
+  if(!indexWalks(false))indexWalks(true);
+  const columns=[];
+  for(const n of graph.values()){
+    (columns[n.rank]??=[]).push(n);
+    n.members=[...new Set(n.visits.map(v=>v.p))];
+    n.order=n.members.reduce((a,p)=>a+ids.indexOf(p),0)/n.members.length;
+  }
+  const width=Math.max(360,root.clientWidth-30),margin=63;
+  const capacity=Math.max(2,Math.floor((width-2*margin)/105));
+  const totalRows=Math.ceil(columns.length/capacity);
+  const span=Math.ceil(columns.length/totalRows);
+  for(let start=0;start<columns.length;start+=span){
+    const batch=columns.slice(start,start+span),end=start+batch.length;
+    const layers=Math.max(...batch.map(col=>col.length));
+    const body=Math.max(105,layers*85),mid=30+body/2;
+    const position=new Map(),edges=[],bypasses=new Set();
+    const x=i=>margin+(i+.5)*(width-2*margin)/span;
+    batch.forEach((col,i)=>{
+      col.sort((a,b)=>a.order-b.order);
+      col.forEach((n,j)=>position.set(n,{x:x(i),y:mid+(j-(col.length-1)/2)*85}));
+    });
+    for(const [p,walk] of fiveWalks){
+      const route=walk.map(s=>graph.get(s.key)),k=ids.indexOf(p),offset=(k-(ids.length-1)/2)*3;
+      if(route.at(-1).rank<start||route[0].rank>=end)continue;
+      const rail=mid+(k-(ids.length-1)/2)*19;
+      let prev={x:margin-12,y:rail,r:start-1};
+      for(const n of route.filter(n=>position.has(n))){
+        const pt=position.get(n),to={x:pt.x-40,y:pt.y+offset,r:n.rank};
+        edges.push({p,a:prev,b:to});
+        prev={x:pt.x+40,y:pt.y+offset,r:n.rank};
+      }
+      edges.push({p,a:prev,b:{x:width-margin+12,y:rail,r:end}});
+    }
+    for(const e of edges)if(e.b.r-e.a.r>1)bypasses.add(e.p);
+    const height=body+47+bypasses.size*6;
+    const svg=mark(root,'svg',{viewBox:'0 0 '+width+' '+height,class:'fiveRow',role:'group','aria-label':'路径图第 '+(start/span+1)+' 行'});
+    mark(svg,'text',{x:12,y:16,class:'rowLabel'},'路径从左向右  ·  '+(1+start/span)+' / '+totalRows);
+    for(const {p,a,b} of edges){
+      const m=(a.x+b.x)/2,c=colors.get(p),shelf=body+36+[...bypasses].indexOf(p)*6;
+      const d=b.r-a.r>1?'M '+a.x+' '+a.y+' C '+(a.x+14)+' '+a.y+' '+(a.x+12)+' '+shelf+' '+(a.x+20)+' '+shelf+' H '+(b.x-20)+' C '+(b.x-12)+' '+shelf+' '+(b.x-14)+' '+b.y+' '+b.x+' '+b.y:
+        'M '+a.x+' '+a.y+' C '+m+' '+a.y+' '+m+' '+b.y+' '+b.x+' '+b.y;
+      mark(svg,'path',{d,fill:'none',stroke:c,'stroke-width':2.7,'data-paths':p});
+    }
+    for(const [p,walk] of fiveWalks){
+      if(graph.get(walk[0].key).rank>=end||graph.get(walk.at(-1).key).rank<start)continue;
+      const y=mid+(ids.indexOf(p)-(ids.length-1)/2)*19+4;
+      for(const [x,anchor] of [[margin-15,'end'],[width-margin+15,'start']])
+        mark(svg,'text',{x,y,'text-anchor':anchor,style:'fill:'+colors.get(p)+';font-weight:bold','data-paths':p},p);
+    }
+    for(const [n,pt] of position){
+      const {x,y}=pt,s=n.step,group=mark(svg,'g',{'data-paths':n.members.join(' ')});
+      mark(group,'title',{},n.visits.map(({p,s})=>p+' · S'+s.id+' ['+s.start+','+(s.start+s.dna.length)+') '+s.unit+' '+s.dna).join('\n'));
+      mark(group,'rect',{x:x-40,y:y-25,width:80,height:53,rx:5,fill:s.unknown?'#f1efe8':'#eef4f4',stroke:'#829da2','stroke-dasharray':s.unknown?'3 2':'none'});
+      const units=[...new Set(n.visits.map(({s})=>s.unknown?'未归类':s.unit))];
+      mark(group,'text',{x,y:y-9,'text-anchor':'middle',class:'unit'},(units.length===1?units[0]:'多注释')+' · '+s.dna.length+' bp');
+      const dna=s.dna.length<=20?s.dna:s.dna.slice(0,9)+'…'+s.dna.slice(-9);
+      const cut=Math.min(10,Math.ceil(dna.length/2));
+      mark(group,'text',{x,y:y+5,'text-anchor':'middle',class:'seq'},dna.slice(0,cut));
+      mark(group,'text',{x,y:y+18,'text-anchor':'middle',class:'seq'},dna.slice(cut));
+      const bar=74/n.members.length;
+      n.members.forEach((p,i)=>mark(group,'rect',{x:x-37+i*bar,y:y+23,width:bar,height:4,fill:colors.get(p)}));
+      if(n.members.length===1)mark(group,'text',{x,y:y-29,'text-anchor':'middle',class:'branch',style:'fill:'+colors.get(n.members[0])},n.members[0]);
+    }
+  }
+  showFiveDetails();
+}
+el('fiveCanvas').onclick=e=>{
+  const p=e.target.closest('[data-paths]')?.getAttribute('data-paths');
+  if(p&&!p.includes(' ')){el('fiveTrace').value=el('fiveTrace').value===p?'':p;showFiveDetails()}
+};
+for(const id of ['fiveTrace','fiveBase','fiveOther'])el(id).onchange=showFiveDetails;
+el('fiveEvidence').ontoggle=showFiveDetails;
+let lastWidth=0;
+new ResizeObserver(()=>{
+  const width=el('fiveCanvas').clientWidth;
+  if(width&&width!==lastWidth){lastWidth=width;drawFive()}
+}).observe(el('fiveCanvas'));
+
+startView();
+</script></html>

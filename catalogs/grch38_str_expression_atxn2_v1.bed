@@ -1,0 +1,2 @@
+# ATXN2 STR pilot; original 0-based half-open boundaries; reference orientation
+chr12	111598900	111599070	ID=ATXN2;MOTIFS=CTG;STRUC=<TR>;REPEAT_START=111598950;REPEAT_END=111599019;BOUNDARY=confirmed;STR_STRUCTURE=(CTG)*

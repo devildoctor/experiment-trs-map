@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STR 观察路径</title>
+<style>
+*{box-sizing:border-box}body{margin:24px auto;padding:0 20px;max-width:1350px;font:16px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;color:#163530}
+h1{font-size:1.65rem;margin-bottom:3px}nav{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}a{color:#06594f}
+section{padding:12px 0;border-top:1px solid #ccd8d6}h2{font-size:1.02rem;margin:0 0 7px}
+.walk{display:flex;align-items:center;gap:5px;overflow:auto;padding:3px 0 7px}
+.unit{border:1px solid #829f99;border-radius:5px;padding:4px 8px;background:#edf7f4;white-space:nowrap;font-family:monospace}
+.interrupt{background:#fff0cc;border-color:#997023}.literal{background:#f2eff5;border-style:dashed}
+.dna{overflow-wrap:anywhere;font-family:monospace}select{padding:4px;font:inherit}
+</style>
+<h1 id="title"></h1><nav id="selectors" aria-label="选择观察路径"></nav>
+<p id="legend">箭头沿登记路径前进。↻ 后的数字是本段单元访问次数，琥珀色标出模型中的中断，虚线框保留字面片段。</p>
+<div id="routes"></div><p><a id="gfa">全部路径 GFA</a> · <a id="svg">全部静态路径</a> · <a href="structure-details.html">结构明细与原始路径表</a></p>
+<script>
+const bundle=/* STR_DATA */;
+const paths=bundle.paths.filter(p=>p.role!=='reference');
+const selectors=[], colors=['#19786e','#8b501d','#4f65a7','#825386','#637e24'];
+const byId=new Map(paths.map(p=>[p.id,p]));
+const el=id=>document.getElementById(id);
+el('title').textContent=bundle.locus+' · STR 观察路径';
+document.title=el('title').textContent;
+for(const ext of ['gfa','svg'])el(ext).href=encodeURIComponent(bundle.locus)+'.observed-str.'+ext;
+function render(){
+  const active=selectors.map(s=>s.value).filter(Boolean);
+  for(const select of selectors)for(const opt of select.options)opt.disabled=!!opt.value&&opt.value!==select.value&&active.includes(opt.value);
+  const host=el('routes');host.replaceChildren();
+  for(const [i,select] of selectors.entries()){
+    const path=byId.get(select.value);if(!path)continue;
+    const section=document.createElement('section');section.dataset.path=path.id;
+    const title=document.createElement('h2');title.style.color=colors[i];
+    title.textContent=path.id+' · '+path.length+' bp · '+path.support+' 个支持分子';section.append(title);
+    const walk=document.createElement('div');walk.className='walk';const dna=[];
+    path.runs.forEach((r,index)=>{
+      const block=path.blocks[index],bases=bundle.nodes[r.node],unit=document.createElement('span');
+      unit.className='unit '+(block.interruption?'interrupt':block.kind==='literal'?'literal':'');
+      unit.dataset.node=r.node;unit.dataset.count=r.count;
+      unit.textContent=bases+(r.count>1?' ↻×'+r.count:'');
+      unit.title=[r.node,block.unit_id||block.model_unit||'',block.interruption?'中断':''].filter(Boolean).join(' · ');
+      if(index)walk.append('→');walk.append(unit);dna.push(bases.repeat(r.count));
+    });
+    section.append(walk);
+    const details=document.createElement('details'),summary=document.createElement('summary'),seq=document.createElement('div');
+    summary.textContent='查看原始核心序列';seq.className='dna';seq.textContent=dna.join('');
+    details.append(summary,seq);section.append(details);host.append(section);
+  }
+  if(!active.length)host.textContent=paths.length?'请选择观察路径':'当前输入只有参考路径';
+}
+for(let i=0;i<5;i++){
+  const select=document.createElement('select');select.setAttribute('aria-label','观察路径 '+(i+1));select.add(new Option('未选择',''));
+  for(const p of paths)select.add(new Option(p.id,p.id));
+  select.value=paths[i]?.id||'';select.addEventListener('change',render);selectors.push(select);el('selectors').append(select);
+}
+render();
+</script></html>

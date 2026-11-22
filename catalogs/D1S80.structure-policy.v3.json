@@ -1,0 +1,19 @@
+{
+  "schema_version": 3,
+  "version": "local-v3-AE-20261110",
+  "model_version": "D1S80.GRCh38.structure.v1",
+  "all_paths": true,
+  "requested_budgets": [0.01, 0.03, 0.05, 0.10],
+  "zero_loss_control": true,
+  "unit_max_edits": 2,
+  "edit_candidates": "stable internal units at the same selected comparison slot; observed direct targets; subtype changes permitted",
+  "unknown_rewriting": false,
+  "short_unknown_shared": "same comparison slot and neighboring position instances/status/types; lengths and sequences kept per visit",
+  "long_unknown": "at least one catalog unit long: preserve as a distinct literal block",
+  "ambiguity_rewriting": false,
+  "weak_approximate_rewriting": false,
+  "E_selection": "all primary-optimal regional alternatives, min full display N then E then lexical, repeat to fixed point",
+  "reference_annotation": "frozen layout origin",
+  "loss_acceptance": "positive post-parameterization post-module N+E reduction",
+  "selection_gain_fraction": 0.9
+}

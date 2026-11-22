@@ -1,0 +1,16 @@
+old_name	new_name	compatibility_link
+r4-structure-20261012	20261012_structure_legacy-r4	r4-structure-20261012
+r5-atxn2-d1s80-20261012	20261012_structure_ATXN2-D1S80_legacy-r5	r5-atxn2-d1s80-20261012
+r6-motif-discovery-20261013	20261013_motif-discovery_ATXN2-D1S80_legacy-r6	r6-motif-discovery-20261013
+r7-abca7-point-graph-20261013	20261013_pointgraph_ABCA7_legacy-r7	r7-abca7-point-graph-20261013
+r8-abca7-all-reads-20261013	20261013_readview_ABCA7_legacy-r8	r8-abca7-all-reads-20261013
+r9-abca7-structure-20261013	20261013_structure_ABCA7_legacy-r9	r9-abca7-structure-20261013
+r10-abca7-all-reads-seeded-20261013	20261013_readview_ABCA7_seeded_legacy-r10	r10-abca7-all-reads-seeded-20261013
+r11-structure-summary-20261013	20261013_structure-summary_ATXN2-D1S80-ABCA7_legacy-r11	r11-structure-summary-20261013
+r12-d1s80-anchor-20261019-212258	20261019T212258_anchor_D1S80_legacy-r12	r12-d1s80-anchor-20261019-212258
+r13-d1s80-alt-equivalence-20261019	20261019_alt-equivalence_D1S80_legacy-r13	r13-d1s80-alt-equivalence-20261019
+phase1-20261019-01	20261019_phase1-acceptance_01	phase1-20261019-01
+ATXN2-D1S80-phase1-20261019T155437Z	20261019T155437Z_phase1_ATXN2-D1S80	ATXN2-D1S80-phase1-20261019T155437Z
+bamdata-recovery-20261019T154903Z	20261019T154903Z_data-recovery_all-loci	bamdata-recovery-20261019T154903Z
+data_by_locus	20261019_input-layout_all-loci	data_by_locus
+simplification-backup-20261013-p2a7WG	20261013_backup_simplification_p2a7WG	simplification-backup-20261013-p2a7WG

@@ -1,0 +1,258 @@
+{
+  "base_commit": "491ae44f732498a99f30f6d18b8ab5aeec455210",
+  "branch": "feat/path-structure-graph-20261105",
+  "job": "194888",
+  "run": "/home/data/user/stzhu/重复区域分析/vntr-point-graph/runs-result/20261105_path_structure_061916",
+  "compute_node": "cn01",
+  "unit_tests": 250,
+  "new_module_tests": 18,
+  "unit_test_status": "all_passed_no_skips",
+  "synthetic_bam_integration": "passed",
+  "source_hashes": {
+    "README.md": "c37be7ded059ecc59b0780833210fe084779a7a2882f1c45d82198da3c2ab2f6",
+    "scripts/vntrpathgraph.py": "8232e963845f672aa9c06ddaf581108cc9e609dde8f72dd546a6acb716ce87c6",
+    "scripts/vntrpathgraph_cli.py": "e97cb6fd4bd49a954b55cd64157f83e83165b40e4c0b579ce0e800537a1a4009",
+    "tests/test_pathgraph.py": "e5452609f057e237509483a185dae707a174bde6e9295a60fa5c4a413211f17d",
+    "tests/integration_pathgraph.py": "6837be9b2987a182e23b1a738cee8df2010abe4edbce83583ffa2ba7b9ec6ba5",
+    "tests/verify_pathgraph_results.py": "45a827ae3e93d0000079def5dcd16a3941334e4df9bc2fefb555a88a669aba17",
+    "slurm/pathgraph_pilot.sbatch": "52b015ecf450275f1724f2d1aed8085ae0b036dda5d4dfac56d4e8d9699ee115",
+    "docs/PATH_SEQUENCE_GRAPH.zh-CN.md": "1a762068a0dc653ac5b9749d894e19fcd30886417a23101db482f7567512304b"
+  },
+  "loci": {
+    "ATXN2": {
+      "paths": 29,
+      "molecules": 141,
+      "hifi_molecules": 135,
+      "graph_stats": {
+        "base": {
+          "paths": 29,
+          "nodes": 102,
+          "edges": 142,
+          "reconstructed_bases": 1909
+        },
+        "exact": {
+          "paths": 29,
+          "nodes": 76,
+          "edges": 116,
+          "reconstructed_bases": 1909
+        },
+        "structure": {
+          "paths": 29,
+          "nodes": 76,
+          "edges": 116,
+          "reconstructed_bases": 1909
+        },
+        "preview": {
+          "paths": 10,
+          "nodes": 21,
+          "edges": 30,
+          "reconstructed_bases": 660
+        }
+      },
+      "substituted_bases": 0,
+      "preview": {
+        "status": "rendered",
+        "paths": [
+          "P0001",
+          "P0002",
+          "P0003",
+          "P0004",
+          "P0005",
+          "P0006",
+          "P0007",
+          "P0008",
+          "P0009",
+          "P0010"
+        ],
+        "layout": "panels_with_explicit_edge_continuations",
+        "panels": 2,
+        "selected_molecules": 122,
+        "total_molecules": 141,
+        "omitted_paths": 19,
+        "node_ids": "local_to_preview_gfa_not_full_graph"
+      },
+      "excluded_fragments": 535,
+      "excluded_reasons": {
+        "not_two_anchors": 490,
+        "weak_anchor": 490,
+        "not_primary": 8,
+        "alignment_flag": 8,
+        "flank_only": 40,
+        "no_observed_repeat_bases": 3,
+        "mapq_not_qualified": 2,
+        "not_full_interval": 4
+      },
+      "alignment_ambiguity": "one optimal alignment selected; equivalent alignments not enumerated",
+      "mapping_context": "supplied_BAM_only_not_verified_complete",
+      "verification": {
+        "locus": "ATXN2",
+        "independent_file_audit_passed": true,
+        "original_records": 676,
+        "selected_observations": 141,
+        "molecules": 141,
+        "graphs": {
+          "base": {
+            "paths": 29,
+            "nodes": 102,
+            "edges": 142,
+            "reconstructed_bases": 1909
+          },
+          "exact": {
+            "paths": 29,
+            "nodes": 76,
+            "edges": 116,
+            "reconstructed_bases": 1909
+          },
+          "structure": {
+            "paths": 29,
+            "nodes": 76,
+            "edges": 116,
+            "reconstructed_bases": 1909
+          },
+          "preview": {
+            "paths": 10,
+            "nodes": 21,
+            "edges": 30,
+            "reconstructed_bases": 660
+          }
+        },
+        "changed_bases": 0,
+        "static_svg_topology_passed": true,
+        "static_edge_continuations": 4,
+        "scope": "File reconstruction, selected SAM slices, molecule support and loss accounting; not biological truth"
+      },
+      "artifact_sha256": {
+        "ATXN2.base.gfa": "ed700adb3eeff66afb8c9f837bab2bafa63776237f5ec606916c58f82a7e9338",
+        "ATXN2.exact.gfa": "ce744d3b8dcafe9080a500bacf96a868fd39f8e8a60d5379ec156ae3dcdd5321",
+        "ATXN2.preview.gfa": "52afc55fd83dbadafe1ffb5a8149c735233430e6a123d00a96522e4b0cc72dd7",
+        "ATXN2.preview.linear.svg": "e9ac5a51115e848739218df784dc54adadcd4edee627b673b40626dafd643c65",
+        "ATXN2.preview.png": "81a32906d98618fcccdced32c1ce0129560f11e10d0f3a838c813e5238c72385",
+        "ATXN2.preview.svg": "3d4ff4d6e6de3ae2d6982c7be8144f11f623d58ac8757c5daeda5a1b88e5455f",
+        "ATXN2.structure.gfa": "4a3241eedf9800685c7ed901e552f57c5c26832fc60ecbc7389638cb30912ee7",
+        "paths.original.fa": "463f0b8c18198a96e4ece383f78acf47f37ca0767f148dc51e1ac5fa86c01939",
+        "paths.represented.fa": "463f0b8c18198a96e4ece383f78acf47f37ca0767f148dc51e1ac5fa86c01939"
+      }
+    },
+    "D1S80": {
+      "paths": 24,
+      "molecules": 42,
+      "hifi_molecules": 39,
+      "graph_stats": {
+        "base": {
+          "paths": 24,
+          "nodes": 659,
+          "edges": 872,
+          "reconstructed_bases": 9351
+        },
+        "exact": {
+          "paths": 24,
+          "nodes": 376,
+          "edges": 589,
+          "reconstructed_bases": 9351
+        },
+        "structure": {
+          "paths": 24,
+          "nodes": 376,
+          "edges": 589,
+          "reconstructed_bases": 9351
+        },
+        "preview": {
+          "paths": 10,
+          "nodes": 92,
+          "edges": 136,
+          "reconstructed_bases": 3735
+        }
+      },
+      "substituted_bases": 0,
+      "preview": {
+        "status": "rendered",
+        "paths": [
+          "P0001",
+          "P0002",
+          "P0003",
+          "P0004",
+          "P0005",
+          "P0006",
+          "P0007",
+          "P0008",
+          "P0009",
+          "P0010"
+        ],
+        "layout": "panels_with_explicit_edge_continuations",
+        "panels": 7,
+        "selected_molecules": 28,
+        "total_molecules": 42,
+        "omitted_paths": 14,
+        "node_ids": "local_to_preview_gfa_not_full_graph"
+      },
+      "excluded_fragments": 412,
+      "excluded_reasons": {
+        "not_two_anchors": 321,
+        "weak_anchor": 321,
+        "flank_only": 38,
+        "not_full_interval": 20,
+        "mapq_not_qualified": 180,
+        "no_observed_repeat_bases": 1,
+        "not_primary": 5,
+        "alignment_flag": 5
+      },
+      "alignment_ambiguity": "one optimal alignment selected; equivalent alignments not enumerated",
+      "mapping_context": "supplied_BAM_only_not_verified_complete",
+      "verification": {
+        "locus": "D1S80",
+        "independent_file_audit_passed": true,
+        "original_records": 454,
+        "selected_observations": 42,
+        "molecules": 42,
+        "graphs": {
+          "base": {
+            "paths": 24,
+            "nodes": 659,
+            "edges": 872,
+            "reconstructed_bases": 9351
+          },
+          "exact": {
+            "paths": 24,
+            "nodes": 376,
+            "edges": 589,
+            "reconstructed_bases": 9351
+          },
+          "structure": {
+            "paths": 24,
+            "nodes": 376,
+            "edges": 589,
+            "reconstructed_bases": 9351
+          },
+          "preview": {
+            "paths": 10,
+            "nodes": 92,
+            "edges": 136,
+            "reconstructed_bases": 3735
+          }
+        },
+        "changed_bases": 0,
+        "static_svg_topology_passed": true,
+        "static_edge_continuations": 12,
+        "scope": "File reconstruction, selected SAM slices, molecule support and loss accounting; not biological truth"
+      },
+      "artifact_sha256": {
+        "D1S80.base.gfa": "964e153023698c31eac75a3e6a60ef69324fe0970d2d115fa7aae191496fbb5f",
+        "D1S80.exact.gfa": "480166a511c8b3c640688bb4b69cf0fb5adface7fb64c0303013ed25f9225be4",
+        "D1S80.preview.gfa": "8ad2aeec6ab7f7b089ed2232e361fe0027222c026ba1a75f0897e2750465b929",
+        "D1S80.preview.linear.svg": "fe1c93d608470c4fff2980bdee62342247bc0497c3f1a11bc0d46f1ca7ecb7da",
+        "D1S80.preview.png": "ea6bf528f9d949c73911c5dc1a314d92f2a538c1193dcdeae140a8cc3606a4ca",
+        "D1S80.preview.svg": "440b56f79a7253c76030e3543574f4c2b039465f6d2b4db92fc33fcba4111ac7",
+        "D1S80.structure.gfa": "63d7b17fe74983f1e25e1024bbac5796418ba88b8bb52a5fdbc776086960bd8a",
+        "paths.original.fa": "8d114b0e3df438823e5535f291f9492097a0d6ed199cb7317df3331ef3ba4118",
+        "paths.represented.fa": "8d114b0e3df438823e5535f291f9492097a0d6ed199cb7317df3331ef3ba4118"
+      }
+    }
+  },
+  "limits": [
+    "Only qualified observations in existing locus BAMs; not all molecules or validated alleles.",
+    "Single observed-backbone alignment; equally optimal repeat correspondences not enumerated.",
+    "No genome-wide competitive mapping or recovery of previously discarded secondary records.",
+    "Real-data run is lossless; explicit lossy substitution mode is covered by synthetic tests.",
+    "GFA checked by independent file parser, not by odgi/vg import in this environment."
+  ]
+}
