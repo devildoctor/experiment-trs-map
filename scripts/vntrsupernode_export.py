@@ -4,6 +4,7 @@ from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
 import json
+import csv
 import shutil
 import subprocess
 import time
@@ -21,7 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def digest(path):
-    return sha256(path.read_bytes()).hexdigest()
+    checksum=sha256()
+    with path.open('rb') as handle:
+        for block in iter(lambda:handle.read(1024*1024),b''):
+            checksum.update(block)
+    return checksum.hexdigest()
 
 
 def read(path):
@@ -106,11 +111,26 @@ def validate_dictionary(out, prov):
     return policy,model
 
 
-def validate_bundle(out):
+def validate_bundle(out,source_root=None):
     prov=read(out/'provenance.json')
     modes=('original','represented')
     required={'display_graph.json','sequence_variants.json','source_members.json','path_visits.jsonl',
               'supernode_policy.json','annotation_audit.json','losses.jsonl','paths.tsv','locus_model.original.json'}
+    if prov.get('bundle_version',1)>=2:
+        required.update({'input_manifest.json',prov['locus']+'.path_sequences.txt'})
+        if prov.get('input_manifest_sha256')!=prov['files'].get('input_manifest.json'):
+            raise ValueError('Input manifest digest mismatch')
+        inp=read(out/'input_manifest.json')
+        expected=inp.get('file_sha256') if prov.get('input_sha256_scope')=='input_file' else prov['input_manifest_sha256']
+        if not expected or prov.get('input_sha256')!=expected:
+            raise ValueError('Input identity digest mismatch')
+        if 'scripts/supernode_projection.js' not in prov['source_files']:
+            raise ValueError('Missing projection source hash')
+    if source_root is not None:
+        for name,expected in prov['source_files'].items():
+            path=source_root/name
+            if not path.is_file() or digest(path)!=expected:
+                raise ValueError('Source file hash mismatch: '+name)
     for mode in modes:
         required.update((prov['locus']+'.'+mode+'.gfa','paths.'+mode+'.fa'))
     if not required.issubset(prov['files']): raise ValueError('Incomplete bundle manifest')
@@ -121,6 +141,17 @@ def validate_bundle(out):
     nodes=display['nodes']
     variants=read(out/'sequence_variants.json')
     records=unique_rows(read(out/'source_members.json'),lambda r:r['id'],'source path')
+    if prov.get('bundle_version',1)>=2:
+        with (out/(prov['locus']+'.path_sequences.txt')).open(encoding='utf-8') as handle:
+            exported=unique_rows(csv.DictReader((line for line in handle if not line.startswith('#')),delimiter='\t'),
+                                 lambda r:r['name'],'path in TXT')
+        if set(exported)!=set(records):
+            raise ValueError('TXT path names mismatch')
+        for p,r in records.items():
+            row=exported[p]
+            if (row['role'],row['sequence'],int(row['length_bp']),int(row['molecules']))!=(
+                    r['role'],r['sequence'],len(r['sequence']),len(set(r['molecules']))):
+                raise ValueError('TXT path content mismatch: '+p)
     rows=unique_rows(map(json.loads,(out/'path_visits.jsonl').read_bytes().splitlines()),lambda r:r['path'],'path')
     paths={p:row['visits'] for p,row in rows.items()}
     unique_rows((v for vs in paths.values() for v in vs),lambda v:v['visit_id'],'visit')
@@ -250,10 +281,11 @@ def validate_bundle(out):
                 node_and_edge_support=True,manifest_coverage=True,hashes=True)
 
 
-def export_supernodes(out,locus,records,model_path,policy_path,render=True,input_path=None,*,q=None):
+def export_supernodes(out,locus,records,model_path,policy_path,render=True,input_path=None,*,q=None,metadata=None):
     start=time.monotonic()
     policy=load_policy(policy_path)
     records=sorted(records,key=lambda r:r['id'])
+    metadata=metadata or {}
     original=read(model_path)
     require_original_model(original)
     resolved_policy=out/'supernode_policy.json'
@@ -335,20 +367,37 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
                 dict(stage='constrained_supernodes',display=metric,literal=metrics['represented'],edited_bp=sum(map(len,events.values())))])
     if q is not None:
         summary['effective_dictionary']=len(model['motifs'])
+    from vntrpathstructure_export import write_path_sequences_txt
+    write_path_sequences_txt(out/(locus.name+'.path_sequences.txt'),records,metadata)
+    if metadata.get('core_length_evidence') is not None:
+        summary['core_length_evidence']=metadata['core_length_evidence']
+    if 'input_identity' in metadata:
+        summary['input_identity']=metadata['input_identity']
     dump(out/'summary.json',summary)
     if render:
         from vntrsupernode_viewer import write_viewer
         write_viewer(out,display,visits,variants,records,events,policy,rows)
+    manifest={k:metadata[k] for k in ('reference','reference_core_sha256','catalog_sha256','input_files',
+              'extraction_version','boundary_model_sha256','input_identity','admission') if k in metadata}
+    if input_path:
+        manifest.update(kind=metadata.get('input_kind','members'),file=str(input_path),file_sha256=digest(input_path))
+    elif 'input_files' in manifest:
+        manifest['kind']='bam'
+    else:
+        manifest.update(kind='in_memory',members_sha256=digest(out/'source_members.json'))
+    dump(out/'input_manifest.json',manifest)
     files={f.name:digest(f) for f in sorted(out.iterdir()) if f.is_file() and f.name not in ('provenance.json','validation.json')}
     commit=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
     sources=[*ROOT.glob('scripts/vntr*.py'),ROOT/'scripts/run_efficient_family.py',ROOT/'scripts/supernodes.html',ROOT/'scripts/supernode_compare.js',
-             ROOT/'third_party/cytoscape-3.30.4/cytoscape.min.js']
-    provenance=dict(locus=locus.name,decoder='hmm_assessed',dictionary=policy['annotation_dictionary'],dictionary_q=q,policy=policy,
+             ROOT/'scripts/supernode_projection.js',ROOT/'third_party/cytoscape-3.30.4/cytoscape.min.js']
+    provenance=dict(bundle_version=2,locus=locus.name,decoder='hmm_assessed',dictionary=policy['annotation_dictionary'],dictionary_q=q,policy=policy,
         full_model_sha256=digest(model_path),model_sha256=mhash,policy_sha256=digest(resolved_policy),boundary_model_hashes=sorted({o['boundary_model_sha256']
             for r in records for o in r['observations'] if o.get('boundary_model_sha256')}),
         source_commit=commit.stdout.strip() if commit.returncode==0 else None,
-        source_files={str(f.relative_to(ROOT)):digest(f) for f in sources if f.exists()},
-        input_sha256=digest(input_path) if input_path else None,files=files)
+        source_files={f.relative_to(ROOT).as_posix():digest(f) for f in sources},
+        input_manifest_sha256=files['input_manifest.json'],parameters=metadata.get('parameters',{}),
+        input_sha256_scope='input_file' if input_path else 'input_manifest',
+        input_sha256=manifest.get('file_sha256',files['input_manifest.json']),files=files)
     if q is not None:
         provenance['effective_model_sha256']=mhash
     dump(out/'provenance.json',provenance)
@@ -362,5 +411,7 @@ if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser(description='Validate a saved supernode bundle')
     parser.add_argument('bundle',type=Path)
-    print(json.dumps(validate_bundle(parser.parse_args().bundle)))
+    parser.add_argument('--source-root',type=Path,help='Additionally compare the recorded source file hashes with a checkout')
+    args=parser.parse_args()
+    print(json.dumps(validate_bundle(args.bundle,args.source_root)))
 

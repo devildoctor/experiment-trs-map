@@ -286,8 +286,15 @@ def main():
         for name in ['vntrflankalign.py']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
     if args.supernode_policy:
-        from vntrsupernode_export import export_supernodes
-        summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy,q=args.q)
+        from vntrsupernode_export import export_supernodes,digest as file_digest
+        for entry in metadata.get('input_files',[]):
+            bam=Path(entry['path'])
+            entry['sha256']=file_digest(bam)
+            index=next(p for p in (Path(str(bam)+'.bai'),bam.with_suffix('.bai')) if p.is_file())
+            entry['index']=dict(path=str(index),sha256=file_digest(index))
+        if args.structures_json: metadata['input_kind']='structures'
+        summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy,
+                                 input_path=args.structures_json,q=args.q,metadata=metadata)
         print(json.dumps(summary),flush=True)
         return
     if args.graph_mode=='structure':

@@ -16,15 +16,19 @@ def write_path_sequences_txt(path,records,metadata):
     old=metadata.get('previous_name_by_sha256',{})
     with path.open('w',encoding='utf-8',newline='') as handle:
         handle.write('# P0001 is the reference core; observation paths start at P0002.\n')
-        handle.write('# Admission: complete B2 flank evidence; MAPQ/FLAG retained as provenance.\n')
+        admission=metadata.get('admission','source membership as provided')
+        identity=metadata.get('input_identity',{}).get('status')
+        handle.write('# Admission: '+admission+('; member identity: '+identity if identity else '')+'\n')
         handle.write('# Coordinates are 0-based half-open; sequences exclude flank templates.\n')
         reference=next((r for r in records if r.get('role')=='reference'),None)
-        if reference: handle.write('# Reference interval: '+json.dumps(reference['reference_interval'])+'\n')
+        if reference and reference.get('reference_interval') is not None:
+            handle.write('# Reference interval: '+json.dumps(reference['reference_interval'])+'\n')
         writer=csv.writer(handle,delimiter='\t',lineterminator='\n')
         writer.writerow(['name','role','length_bp','molecules','hifi_molecules','old_name','sequence'])
         for r in records:
             writer.writerow([r['id'],r.get('role','observation'),len(r['sequence']),len(r['molecules']),
-                             len(r['hifi_molecules']),old.get(r['sha256'],'') if r.get('role')!='reference' else '',r['sequence']])
+                             len(r.get('hifi_molecules',{o['molecule'] for o in r['observations'] if o.get('platform')=='HiFi'})),
+                             old.get(r['sha256'],'') if r.get('role')!='reference' else '',r['sequence']])
 
 
 def export_structure(destination,locus,records,excluded,metadata,model_path,policy_path,budget,

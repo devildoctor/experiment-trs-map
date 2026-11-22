@@ -105,7 +105,10 @@ def run(input_path,model_path,out,q=None,fraction=.03,reference=None,render=True
     if supernode_policy is not None:
         if kind!='VNTR': raise ValueError('Supernode policy requires a VNTR locus')
         from vntrsupernode_export import export_supernodes
-        return export_supernodes(out,locus,records,model_path,supernode_policy,render,input_path,q=q)
+        meta=dict(input_identity=identity,admission='registered source members',reference_core_sha256=records[0]['sha256'],
+                  parameters=dict(q=q,model=str(model_path),supernode_policy=str(supernode_policy),render=render))
+        if reference is not None: meta['reference']=str(reference)
+        return export_supernodes(out,locus,records,model_path,supernode_policy,render,input_path,q=q,metadata=meta)
     if q is None: q=.1
     processing=dict(repeat_type=kind,decoder='seed_dp' if kind=='STR' else 'hmm_single',
         hmm_skip=kind=='VNTR',efficient_dictionary=kind=='VNTR',family_display=kind=='VNTR',
