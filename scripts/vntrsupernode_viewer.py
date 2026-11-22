@@ -13,6 +13,9 @@ def write_viewer(out,display,visits,variants,records,events,policy,rows):
     for r in records:
         active=set(r['molecules']) if r['role']!='reference' else set()
         path_info[r['id']].update(budget_bp=path_budget(r,policy),molecule_keys=sorted(active))
+        known={o['molecule'] for o in r['observations'] if isinstance(o.get('core_ambiguous'),bool)} & active
+        tied={o['molecule'] for o in r['observations'] if o.get('core_ambiguous') is True} & active
+        path_info[r['id']].update(boundary_assessed=len(known),boundary_tied=len(tied))
         by_sample=defaultdict(set)
         for o in r['observations']:
             if o['molecule'] in active: by_sample[o['sample']].add(o['molecule'])

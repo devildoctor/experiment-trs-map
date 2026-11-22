@@ -31,13 +31,15 @@ body.five > nav,body.five > main,body.five > #tracks,body.five > #legend{display
 .fiveRow text{font:11px "Segoe UI","Microsoft YaHei",sans-serif;fill:#1c3541}
 .fiveRow .seq{font:11px Consolas,monospace}.fiveRow .unit{font-size:13px;font-weight:650}
 .fiveRow [data-paths]{cursor:pointer}.fiveRow .dim{opacity:.12}
-#fivePanel details{background:white;padding:8px 14px}#fivePanel pre{overflow-wrap:anywhere;white-space:pre-wrap}
+.structRow{background:white;margin:7px 14px;padding:9px 11px;border-left:4px solid}.structRow h3{margin:0 0 4px;font-size:15px}.structWalk{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.structWalk button{font:12px monospace;background:#edf6f1;border:1px solid #608e80;border-radius:4px;padding:4px 6px;cursor:pointer}.structWalk button.local{border-style:dashed;background:#f6f2ec}.structRow small{color:#48605b}.structRow.dim{opacity:.25}#blockEvidence{overflow-wrap:anywhere;white-space:pre-wrap}#fivePanel details{background:white;padding:8px 14px}#fivePanel pre{overflow-wrap:anywhere;white-space:pre-wrap}
 #fivePanel .rowLabel{fill:#526b73}.fiveRow .branch{font-size:10px}
 
 </style>
 <section id="fivePanel" hidden><nav><strong id="fiveSummary"></strong><div id="fiveSlots"></div>
 <label>高亮<select id="fiveTrace"></select></label></nav>
-<div id="fiveCanvas" aria-label="所选路径的原始序列图"></div>
+<div id="fiveRoutes" aria-label="按登记顺序排列的结构块"></div>
+<details id="fiveLiteral"><summary>展开所选路径的原始 GFA 步序</summary><div id="fiveCanvas" aria-label="所选路径的原始序列图"></div></details>
+<details id="fiveJunctions"><summary>核对有分子支持、连续走法未登记的相邻边</summary><select id="fiveJunction"></select><p id="junctionCounts"></p></details>
 <details id="fiveEvidence"><summary>路径序列与两两对齐</summary><p id="fiveStats"></p><pre id="fiveDNA"></pre><label>对齐到<select id="fiveOther"></select></label><pre id="fiveAlignment"></pre></details></section>
 <script>/* CYTOSCAPE */</script><script>/* COMPARE */</script><script>/* PROJECTION */</script><script>
 'use strict';
@@ -399,17 +401,57 @@ function fiveWalk(p){
     });
   });
 }
+function drawStructureRows(ids,colors){
+  const root=el('fiveRoutes');root.replaceChildren();
+  for(const p of ids){
+    const info=data.path_info[p],section=document.createElement('section');
+    section.className='structRow';section.dataset.path=p;section.style.borderColor=colors.get(p);
+    const title=document.createElement('h3'),meta=document.createElement('small'),walk=document.createElement('div');
+    title.textContent=p+' · '+info.length+' bp · '+info.molecule_keys.length+' 个支持分子';
+    meta.textContent='原始结构 · '+paths[p].length+' 次块访问 · 切点有并列 '+info.boundary_tied+'/'+info.boundary_assessed+' 个已评估分子 · 表示串改写 '+info.edited_bp+' bp';
+    walk.className='structWalk';
+    for(const v of paths[p]){
+      const node=nodes[v.supernode_id],button=document.createElement('button');
+      const local=v.position_assessment==='path_local';
+      button.className=local?'local':'';button.dataset.visit=v.visit_id;
+      const position=local?'路径局部':node.path_count>1?'多路径共享':'已定位';
+      const status=v.boundary_assessment==='uncertain_outer'?'外切点未定':stateLabel(node,v);
+      button.textContent=pattern(node)+' ×'+v.repeat_count+' · '+position+(status?' / '+status:'');
+      button.onclick=()=>{
+        const original=v.original_variant_ids.map(k=>data.variants[k]).join('');
+        const represented=v.represented_variant_ids.map(k=>data.variants[k]).join('');
+        const edits=[];for(let i=0;i<original.length;i++)if(original[i]!==represented[i])edits.push((v.original_interval[0]+i)+' '+original[i]+'→'+represented[i]);
+        el('blockEvidence').textContent=p+' · '+v.supernode_id+' · ['+v.original_interval+') · '+position+'\n原始 '+original+'\n表示 '+represented+'\n原始 GFA '+v.original_gfa_walk.join(' → ')+(edits.length?'\n0 起点改写 '+edits.join('，'):'');
+      };
+      if(walk.childElementCount)walk.append('→');walk.append(button);
+    }
+    section.append(title,meta,walk);root.append(section);
+  }
+  const detail=document.createElement('pre');detail.id='blockEvidence';root.append(detail);
+}
+let junctions;
+el('fiveJunctions').ontoggle=()=>{
+  if(!el('fiveJunctions').open || junctions)return;
+  junctions=untraversedJunctions(data.graph.edges,paths);
+  const select=el('fiveJunction');
+  junctions.forEach((j,i)=>option(select,String(i),j.left+' / '+j.right+' 分子 · '+j.route[1]));
+  select.onchange=()=>{const j=junctions[Number(select.value)];el('junctionCounts').textContent=j?j.route.join(' → ')+' · 两条边分别有 '+j.left+'、'+j.right+' 个支持分子 · 连续经过的登记 P 为 0':'未发现这类相邻边';};
+  select.onchange();
+};
 function showFiveDetails(){
   const p=el('fiveTrace').value,w=fiveWalks.get(p)||[];
   el('fiveDNA').textContent=w.map(s=>s.dna).join('');
   el('fiveStats').textContent=p?p+' · '+data.path_info[p].length+' bp · '+data.path_info[p].molecule_keys.length+' 个支持分子 · '+Object.keys(data.samples[p]).join('、'):'选择路径以查看序列';
   for(const e of el('fiveCanvas').querySelectorAll('[data-paths]'))
     e.classList.toggle('dim',!!p&&!e.getAttribute('data-paths').split(' ').includes(p));
+  for(const row of el('fiveRoutes').querySelectorAll('.structRow'))row.classList.toggle('dim',!!p&&row.dataset.path!==p);
   const q=el('fiveOther').value;
   el('fiveAlignment').textContent=p&&q&&p!==q?alignFive(el('fiveDNA').textContent,fiveWalks.get(q).map(s=>s.dna).join('')):'';
 }
 // Unit-cost global edit alignment. Retain ties on the displayed traceback.
 function alignFive(a,b){
+  const difference=rawDifference(a,b);
+  const measure=difference.lengthDifference===0?'原串等长，逐位差异 '+difference.mismatches+' 处':'原串长度相差 '+difference.lengthDifference+' bp，单段删除可匹配的起点 '+difference.starts+' 个'+(difference.starts?'（0 起点 '+difference.first+' 至 '+difference.last+'）':'');
   const d=Array.from({length:a.length+1},()=>new Uint32Array(b.length+1));
   for(let i=0;i<=a.length;i++)d[i][0]=i;
   for(let j=0;j<=b.length;j++)d[0][j]=j;
@@ -421,7 +463,7 @@ function alignFive(a,b){
     if(Number(diag)+Number(up)+Number(left)>1)tie=true;
     if(diag){x.push(a[--i]);y.push(b[--j])}else if(up){x.push(a[--i]);y.push('-')}else{x.push('-');y.push(b[--j])}
   }
-  x.reverse();y.reverse();const rows=[tie?'存在等价对齐，显示其中一种':'全局最小编辑对齐'];
+  x.reverse();y.reverse();const rows=[measure,tie?'存在等价对齐，显示其中一种':'全局最小编辑对齐'];
   for(let k=0;k<x.length;k+=28){const u=x.slice(k,k+28),v=y.slice(k,k+28);rows.push(u.join(''),u.map((c,h)=>c===v[h]?'·':'^').join(''),v.join(''),'')}
   return rows.join('\n');
 }
@@ -436,6 +478,7 @@ function drawFive(){
   const ids=choices.map(s=>s.value).filter(Boolean),colors=new Map(choices.map((s,i)=>[s.value,palette[i]]));
   for(const s of choices)for(const o of s.options)o.disabled=!!o.value&&o.value!==s.value&&ids.includes(o.value);
   fiveWalks=new Map(ids.map(p=>[p,fiveWalk(p)]));
+  drawStructureRows(ids,colors);
   for(const key of ['fiveTrace','fiveOther']){
     const s=el(key),old=s.value;s.replaceChildren();option(s,'',key==='fiveTrace'?'全部':'未选');
     for(const p of ids)option(s,p,p);s.value=ids.includes(old)?old:'';

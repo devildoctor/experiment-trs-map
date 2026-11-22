@@ -26,3 +26,13 @@ assert.equal(sel({path:'p',sample:'s'},{path:'q',sample:'t'}).molecules,3);
 assert.equal(sel({path:'p',sample:'s'},{path:'p',sample:'s'}).paths,1);
 assert.deepEqual(sel({path:'ref',sample:'s'},{path:'p',sample:'s'}).perTrack,[[],['m1','m2']]);
 console.log('PASS correspondence, crossed/repeated/uncertain IDs, ordered layout and scoped support');
+{
+  const assert=require('node:assert/strict');
+  const {rawDifference,untraversedJunctions}=require('../scripts/supernode_compare');
+  assert.equal(rawDifference('ACGA','ACTA').mismatches,1);
+  assert.deepEqual(rawDifference('CAAAAT','CAAAT'),{lengthDifference:1,first:1,last:4,starts:4});
+  const edges=[{source:'A',target:'B',molecule_count:19},{source:'B',target:'C',molecule_count:27}];
+  const visits=ids=>ids.map(supernode_id=>({supernode_id}));
+  assert.equal(untraversedJunctions(edges,{a:visits(['A','B']),b:visits(['B','C'])}).length,1);
+  assert.equal(untraversedJunctions(edges,{a:visits(['A','B','C'])}).length,0);
+}
