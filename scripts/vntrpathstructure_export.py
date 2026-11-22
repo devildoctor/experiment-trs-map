@@ -26,8 +26,11 @@ def write_path_sequences_txt(path,records,metadata):
         writer=csv.writer(handle,delimiter='\t',lineterminator='\n')
         writer.writerow(['name','role','length_bp','molecules','hifi_molecules','old_name','sequence'])
         for r in records:
-            writer.writerow([r['id'],r.get('role','observation'),len(r['sequence']),len(r['molecules']),
-                             len(r.get('hifi_molecules',{o['molecule'] for o in r['observations'] if o.get('platform')=='HiFi'})),
+            hifi=r.get('hifi_molecules')
+            if hifi is None:
+                hifi={o['molecule'] for o in r['observations'] if o.get('platform')=='HiFi'}
+            writer.writerow([r['id'],r.get('role','observation'),len(r['sequence']),len(set(r['molecules'])),
+                             len(set(hifi)),
                              old.get(r['sha256'],'') if r.get('role')!='reference' else '',r['sequence']])
 
 

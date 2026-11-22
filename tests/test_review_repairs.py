@@ -11,8 +11,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 
-from run_efficient_family import run
-from vntrflankalign import build_context
+from run_efficient_family import run, member_identity
+from vntrflankalign import build_context, pair_endpoints, PREVIOUS_VERSION, write_flank_outputs
 from vntrgraph import Locus
 from vntrhmm import segment_hmm
 from vntrreads import extract_record
@@ -22,6 +22,20 @@ from vntrstructure import annotate_rows
 
 
 class ReviewRepairs(unittest.TestCase):
+    def test_reference_identity_evidence_and_missing_fields(self):
+        model=dict(locus='L',assembly='GRCh38',chrom='chr1',start=10,end=13)
+        ref=dict(id='P0001',role='reference',sequence='CAG',sha256=sha256(b'CAG').hexdigest(),
+                 locus='L',assembly='GRCh38',observations=[],molecules=[])
+        for interval in (['chr1',10,13],dict(chrom='chr1',start=10,end=13)):
+            row=dict(ref,reference_interval=interval)
+            self.assertEqual(member_identity([row],model,'CAG')['status'],'verified')
+            with self.assertRaisesRegex(ValueError,'reference bases'):
+                member_identity([row],model,'CAA')
+            with self.assertRaisesRegex(ValueError,'assembly'):
+                member_identity([dict(row,assembly='GRCh37')],model)
+        self.assertEqual(member_identity([ref],model)['status'],'partially_verified')
+        self.assertEqual(member_identity([],model,'CAG')['status'],'partially_verified')
+
     def test_wrong_locus_fails_before_output(self):
         model = ROOT / 'catalogs/D1S80.structure.v1.json'
         ref = 'CAG' * 23
@@ -41,13 +55,29 @@ class ReviewRepairs(unittest.TestCase):
         left, right = [''.join(rng.choice('ACGT') for _ in range(250)) for _ in range(2)]
         dna = left + 'CAG'*10 + right
         locus = Locus('X','chr1',250,280,(),boundary_status='confirmed')
-        context = build_context(locus, SimpleNamespace(fetch=lambda c,a,b:dna[a:b],contig_length=lambda c:len(dna)))
+        reference=SimpleNamespace(fetch=lambda c,a,b:dna[a:b],contig_length=lambda c:len(dna))
+        context=build_context(locus,reference)
         for middle, cigar, status in [('', '250M30D250M', 'complete_empty'), ('CAG','253M27D250M','success'),
                                      ('C','251M29D250M','success')]:
             fields=['x','0','chr1','1','60',cigar,'*','0','0',left+middle+right,'*']
             f=extract_record(fields,locus,context)
             self.assertEqual((f['qstart'],f['qend'],f['sequence'],f['core_status']),
                              (250,250+len(middle),middle,status))
+        old=build_context(locus,reference,PREVIOUS_VERSION)
+        fields[5]='250M30D250M';fields[9]=left+right
+        self.assertEqual(len(extract_record(fields,locus,old)['sequence']),1)
+        self.assertNotEqual(old.model_hash,context.model_hash)
+        pairs=pair_endpoints([[250,0,250,250]],[[250,0,250,250],[251,0,250,250]],[250,250],allow_empty=True)
+        fake=dict(status='success',pairs=pairs,representative=pairs[0],ambiguous=True,
+                  left={'endpoints':[[250,0,250,250]]},right={'endpoints':[[250,0,250,250]]})
+        with patch.object(context,'locate',return_value=fake):
+            mixed=context.extract({},left+right,None,[], 'confirmed')
+        self.assertEqual(mixed['core_status'],'empty_or_nonempty')
+        with tempfile.TemporaryDirectory() as temp:
+            rec=dict(mixed,record_id='r1')
+            row=dict(id='R1',molecule_key='M',sample='S',platform='HiFi',read_id='Q',records=[rec,dict(rec,record_id='r2')])
+            counts=write_flank_outputs(Path(temp),[row])
+            self.assertEqual(counts['empty_or_nonempty'],dict(records=2,molecules=1))
 
     def test_iupac_in_both_hmm_passes(self):
         dictionary=[dict(id='U01',base='U01',sequence='ACGTACGT')]
@@ -57,6 +87,31 @@ class ReviewRepairs(unittest.TestCase):
                              ('ACNT','unknown','opaque_iupac'))
             with self.assertRaises(ValueError):
                 segment_hmm(('AC!T',dictionary,'HiFi'),assess_structure=assessed)
+
+    def test_export_q_matrix_preserves_unknown_and_binds_delivery(self):
+        from test_supernode_export import fixture
+        from vntrsupernode_export import export_supernodes, validate_bundle, digest
+        model,records=fixture()
+        locus=Locus(model['locus'],model['chrom'],model['start'],model['end'],(),boundary_status='confirmed')
+        row=records[-1]
+        row['sequence']=row['sequence'][:9]+'N'+row['sequence'][10:]
+        row['sha256']=sha256(row['sequence'].encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as temp:
+            for q in (None,0,.2):
+                out=Path(temp)/str(q);out.mkdir()
+                export_supernodes(out,locus,records,ROOT/'catalogs/D1S80.structure.v1.json',
+                                  ROOT/'catalogs/D1S80.supernodes.v1.json',render=False,q=q)
+                features=json.loads((out/'annotation_audit.json').read_bytes())
+                self.assertEqual(features[row['id']]['annotation']['decoder'],'opaque_iupac')
+                self.assertEqual(''.join(t['exact_bases'] for t in features[row['id']]['tokens']),row['sequence'])
+                self.assertEqual(validate_bundle(out,ROOT)['paths'],3)
+            txt=out/'D1S80.path_sequences.txt'
+            txt.write_bytes(txt.read_bytes().replace(row['sequence'].encode(),b'CAG'))
+            prov_path=out/'provenance.json'
+            prov=json.loads(prov_path.read_bytes());prov['files'][txt.name]=digest(txt)
+            prov_path.write_text(json.dumps(prov))
+            with self.assertRaisesRegex(ValueError,'TXT path content'):
+                validate_bundle(out)
 
     def test_imported_terminal_obeys_path_sample_scope(self):
         model_path=ROOT/'catalogs/D1S80.structure.v1.json'
@@ -80,3 +135,10 @@ class ReviewRepairs(unittest.TestCase):
         rec['samples']['outside-scope']=1
         mixed=annotate_paths([rec],model_path,locus,rows,frozen)[2]['P0002']['tokens']
         self.assertFalse(any(t.get('role')=='right_terminal' for t in mixed))
+        rec['samples']={sample:1}
+        annotate_rows(rows,dictionary,1,model=model)
+        self.assertEqual(frag['tokens'][-1]['role'],'right_terminal')
+        self.assertEqual(annotate_paths([rec],model_path,locus,rows,frozen)[2]['P0002']['tokens'],direct['tokens'])
+        rec['samples']['outside-scope']=1
+        self.assertFalse(any(t.get('role')=='right_terminal'
+                         for t in annotate_paths([rec],model_path,locus,rows,frozen)[2]['P0002']['tokens']))

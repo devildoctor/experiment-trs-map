@@ -260,14 +260,23 @@ def main():
         locus=selected[0];bams=discover_bams(args.bam_dir,args.locus)
         if not bams:raise ValueError('No locus BAMs')
         namespaces=load_source_namespaces(args.sources)
+        input_files=[]
+        for _,_,bam in bams:
+            stat=bam.stat()
+            input_files.append(dict(path=str(bam),bytes=stat.st_size,mtime_ns=stat.st_mtime_ns))
         with IndexedFastaReference(args.reference) as reference:
             with (destination/'records.jsonl').open('w',encoding='utf-8') as records_file:
                 rows,audits=collect_reads(bams,locus,reference,args.samtools,records_file,namespaces,flank_context)
         metadata=dict(locus=asdict(locus),bam_audits=audits,bam_count=len(bams),
             reference=str(args.reference),catalog_sha256=sha256(args.catalog.read_bytes()).hexdigest(),
-            input_files=[dict(path=str(b),bytes=b.stat().st_size,mtime_ns=b.stat().st_mtime_ns) for _,_,b in bams])
+            input_files=input_files)
     records,excluded=select_paths(rows,set(args.platform) if args.platform else None)
     records=assign_reference_paths(records,reference_sequence,dict(chrom=selected[0].chrom,start=selected[0].start,end=selected[0].end))
+    records[0]['locus']=selected[0].name
+    if args.locus_model:
+        from vntrpartition import load_model
+        frozen,_=load_model(args.locus_model,selected[0])
+        records[0]['assembly']=frozen['assembly']
     metadata.update(backbone_path='P0001',reference_core_sha256=digest(reference_sequence),
                     reference=str(args.reference),admission='all_independently_B2_complete')
     if args.previous_members:
@@ -292,6 +301,12 @@ def main():
             entry['sha256']=file_digest(bam)
             index=next(p for p in (Path(str(bam)+'.bai'),bam.with_suffix('.bai')) if p.is_file())
             entry['index']=dict(path=str(index),sha256=file_digest(index))
+            after=bam.stat()
+            if (entry['bytes'],entry['mtime_ns'])!=(after.st_size,after.st_mtime_ns):
+                raise ValueError('BAM changed during extraction: '+str(bam))
+        if args.sources: metadata['sources_sha256']=file_digest(args.sources)
+        if args.previous_members: metadata['previous_members_sha256']=file_digest(args.previous_members)
+        metadata['reference_index_sha256']=file_digest(Path(str(args.reference)+'.fai'))
         if args.structures_json: metadata['input_kind']='structures'
         summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy,
                                  input_path=args.structures_json,q=args.q,metadata=metadata)

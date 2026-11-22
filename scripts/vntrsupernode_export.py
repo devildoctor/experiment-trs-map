@@ -378,7 +378,8 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
         from vntrsupernode_viewer import write_viewer
         write_viewer(out,display,visits,variants,records,events,policy,rows)
     manifest={k:metadata[k] for k in ('reference','reference_core_sha256','catalog_sha256','input_files',
-              'extraction_version','boundary_model_sha256','input_identity','admission') if k in metadata}
+              'extraction_version','boundary_model_sha256','input_identity','admission','bam_count','bam_audits',
+              'reference_index_sha256','sources_sha256','previous_members_sha256') if k in metadata}
     if input_path:
         manifest.update(kind=metadata.get('input_kind','members'),file=str(input_path),file_sha256=digest(input_path))
     elif 'input_files' in manifest:
