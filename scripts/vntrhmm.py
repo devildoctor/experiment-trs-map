@@ -143,7 +143,7 @@ def segment_hmm(task,return_details=False,assess_structure=False,**unused):
     records=sorted((m for m in dictionary if m.get('level','base')=='base'),key=lambda m:m['id'])
     motifs=[m['sequence'] for m in records]
     if not motifs:raise ValueError('HMM needs a frozen motif dictionary')
-    if assess_structure and set(sequence)-set('ACGT'):
+    if set(sequence)-set('ACGT'):
         if set(sequence)-set('ACGTRYSWKMBDHVN'):
             raise ValueError('Invalid DNA alphabet')
         opaque=dict(start=0,end=len(sequence),exact_bases=sequence,status='unknown',
