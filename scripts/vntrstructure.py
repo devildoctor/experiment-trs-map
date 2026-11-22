@@ -255,10 +255,35 @@ def segment_details(task):
 
 
 # 按片段顺序回填 token 和分解审计，不根据是否能注释成功来删除片段。
-def annotate_rows(rows,dictionary,workers):
+def scoped_terminal(model,sequence,samples,is_reference=False):
+    if is_reference or not samples:
+        return None
+    return next((t for t in (model or {}).get('terminal_templates',[])
+                 if set(samples).issubset(t['samples']) and sequence.endswith(t['sequence'])),None)
+
+
+def append_terminal(tokens,audit,terminal,sequence,stop,assessed=False):
+    token = dict(start=stop, end=len(sequence), exact_bases=sequence[stop:],
+                 template=terminal['sequence'], motif=terminal['id'], base=terminal['id'],
+                 orientation='+', phase=0, status='unit', role='right_terminal',
+                 edit_distance=0, annotation_ambiguity=False)
+    if assessed:
+        token.update(structure_assessment='invariant_within_model', boundary_assessment='invariant_within_model')
+        if 'complete_motif_count_range' in audit:
+            audit['complete_motif_count_range'] = [n+1 for n in audit['complete_motif_count_range']]
+    tokens.append(token)
+    if audit.get('alternative'): audit['alternative'].append(dict(token))
+    audit['terminal_scope'] = 'frozen_sample_specific_template_compatibility_not_new_support'
+
+
+def annotate_rows(rows,dictionary,workers,model=None):
     fragments=[(r,f) for r in rows for f in r['fragments']]
-    tasks=((f['sequence'],dictionary,r['platform']) for r,f in fragments)
-    for i,((r,f),(tokens,annotation)) in enumerate(zip(fragments,annotation_results(segment_details,tasks,workers)),1):
+    terminals=[scoped_terminal(model,f['sequence'],[r['sample']]) for r,f in fragments]
+    tasks=((f['sequence'][:-len(t['sequence'])] if t else f['sequence'],dictionary,r['platform'])
+           for (r,f),t in zip(fragments,terminals))
+    for i,((r,f),terminal,(tokens,annotation)) in enumerate(zip(fragments,terminals,annotation_results(segment_details,tasks,workers)),1):
+        if terminal:
+            append_terminal(tokens,annotation,terminal,f['sequence'],len(f['sequence'])-len(terminal['sequence']))
         f['tokens']=tokens;f['annotation']=annotation
         if workers>1 and i%100==0:print(f'Annotated {i}/{len(fragments)}',flush=True)
 
@@ -620,7 +645,7 @@ def main():
             dictionary=updated
             print(f'Discovery round {round_number}: {added} motifs added; {len(dictionary)} total',flush=True)
             if not added:break
-        annotate_rows(rows,dictionary,args.workers)
+        annotate_rows(rows,dictionary,args.workers,model)
         reference_structure=reference_report(locus,reference_sequence,ref_window,ref_start,dictionary,segment,args.gene_strand,args.reference)
     audit=dict(locus=asdict(locus),bam_count=len(bams),read_rows=len(rows),rows_with_repeat_sequence=sum(bool(r['fragments']) for r in rows),
                rows_without_extractable_repeat=sum(not r['fragments'] for r in rows),alignment_records=sum(r['record_count'] for r in rows),bam_audits=audits,

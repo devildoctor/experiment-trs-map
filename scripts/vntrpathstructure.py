@@ -10,7 +10,7 @@ import json
 
 from vntrpathgraph import digest, validate_graph, compact_graph
 from vntrpartition import load_model, require_vntr
-from vntrstructure import segment
+from vntrstructure import segment, scoped_terminal, append_terminal
 
 VERSION = '2.0-structure-first'
 
@@ -96,8 +96,16 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
         sequence = record['sequence']; candidates = []
         for o in record['observations']:
             candidates += imported.get((o['sample'], o['platform'], o['fragment']), [])
-        if candidates and not select_representative and decoder=='seed_dp':
-            if any(f['sequence'] != sequence for f in candidates): raise ValueError('Annotation sequence mismatch')
+        terminal=scoped_terminal(model,sequence,record['samples'],record.get('role')=='reference')
+        imported_disagreement=False
+        use_import=bool(candidates) and not select_representative and decoder=='seed_dp'
+        if use_import:
+            if any(f['sequence'] != sequence for f in candidates):
+                raise ValueError('Annotation sequence mismatch')
+            expected=[(terminal['id'],len(sequence)-len(terminal['sequence']),len(sequence),0)] if terminal else []
+            imported_disagreement=any([(t['motif'],t['start'],t['end'],t.get('edit_distance'))
+                for t in f['tokens'] if t.get('role')=='right_terminal'] != expected for f in candidates)
+        if use_import and not imported_disagreement:
             tokens = deepcopy(candidates[0]['tokens']); audit = deepcopy(candidates[0].get('annotation', {}))
             signatures = {json.dumps([(unit_key(t), t['start'], t['end']) for t in f['tokens']]) for f in candidates}
             audit['annotation_conflict'] = len(signatures)>1
@@ -106,10 +114,6 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
         else:
             # A frozen common annotation profile makes the same sequence have the
             # same decomposition regardless of its platform mixture.
-            terminal = next((t for t in model.get('terminal_templates', [])
-                             if record.get('role')!='reference' and record['samples'] and
-                             set(record['samples']).issubset(t['samples']) and
-                             sequence.endswith(t['sequence'])), None)
             stop = len(sequence)-len(terminal['sequence']) if terminal else len(sequence)
             decode=segment
             if decoder in ('hmm_single','hmm_assessed'):
@@ -119,17 +123,12 @@ def annotate_paths(records, model_path, locus, imported_rows=None, imported_audi
                                     select_representative=select_representative,export_optimal=export_optimal,
                                     **({'assess_structure':True} if decoder=='hmm_assessed' else {}))
             if terminal:
-                token = dict(start=stop, end=len(sequence), exact_bases=sequence[stop:],
-                             template=terminal['sequence'], motif=terminal['id'], base=terminal['id'],
-                             orientation='+', phase=0, status='unit', role='right_terminal',
-                             edit_distance=0, annotation_ambiguity=False)
-                if decoder == 'hmm_assessed':
-                    token.update(structure_assessment='invariant_within_model', boundary_assessment='invariant_within_model')
-                    if 'complete_motif_count_range' in audit:
-                        audit['complete_motif_count_range'] = [n+1 for n in audit['complete_motif_count_range']]
-                tokens.append(token)
-                if audit.get('alternative'): audit['alternative'].append(deepcopy(token))
-                audit['terminal_scope'] = 'frozen_sample_specific_template_compatibility_not_new_support'
+                append_terminal(tokens,audit,terminal,sequence,stop,decoder=='hmm_assessed')
+            if imported_disagreement:
+                audit['terminal_reconciliation'] = dict(reason='frozen_scope_or_suffix_changed',
+                    previous=[dict(fragment=f['id'],terminal_tokens=[t for t in f['tokens']
+                              if t.get('role')=='right_terminal'],last_token=f['tokens'][-1] if f['tokens'] else None)
+                              for f in candidates], selected=terminal['id'] if terminal else None)
             if decoder=='seed_dp':
                 audit['source'] = 'existing_seed_dp_v2'; audit['annotation_profile'] = 'HiFi_cost_profile'
         features[record['id']] = summarize(sequence, tokens, audit, model)
