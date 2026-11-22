@@ -120,6 +120,7 @@ def run(input_path,model_path,out,q=None,fraction=.03,reference=None,render=True
         metadata=dict(backbone_path='P0001',processing=processing,input_identity=identity)
         summary=export_structure(folder,locus,records,[],metadata,model_path,
             str_policy_path(model_path,locus.name),0,0,'dot' if render else None)
+        (out/'index.html').write_text('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=str_legacy/index.html"><a href="str_legacy/index.html">STR 观察路径</a>',encoding='utf-8')
         stats=summary['graph_stats']['structure']
         comparison=[dict(stage='str_legacy',motifs=len(original_model['motifs']),N_d=stats['nodes'],
             E_d=stats['edges'],C=stats['nodes']+stats['edges'],paths=summary['paths'],molecules=summary['molecules'],

@@ -3,6 +3,8 @@
   const change=(id,value)=>{el(id).value=value;el(id).dispatchEvent(new Event('change'))};
   const options=id=>Array.from(el(id).options,o=>o.value);
   const real=!!paths.P0188, sample=Object.keys(data.samples.P0002)[0];
+  check(el('view').value==='five' && !el('fivePanel').hidden && el('fiveRoutes').querySelector('.structRow'), 'initial observed five-path view');
+  change('view','overview');
   check(el('view').value==='overview' && el('tracks').hidden && !el('globalSample').hidden &&
     cy.nodes().length===Object.keys(nodes).length,'initial global overview');
   change('view','compare');

@@ -199,9 +199,12 @@ def write_paths_svg(path, graph, paths=None):
             label+=f' · {p["annotation"]["length"]} bp · {len(p["molecule_ids"])} molecules'
         body.append(f'<text x="24" y="{top+8}" font-size="17" font-weight="bold">{escape(label)}</text>')
         previous = None
-        for run,(width,height,lines) in zip(runs, boxes):
+        for index,(run,(width,height,lines)) in enumerate(zip(runs,boxes)):
             name, count = run["node"], run["count"]
             node = graph["nodes"][name]
+            block=p["annotation"]["blocks"][index] if graph["flank_scope"]=="observed_core" else {}
+            caption=name+" · "+block["unit_id"] if "unit_id" in block else name
+            fill="#ffe2a9" if block.get("interruption") else COLORS[node["kind"]]
             mid = y+height/2
             if previous is not None:
                 px, py, pn = previous
@@ -210,9 +213,9 @@ def write_paths_svg(path, graph, paths=None):
                             f'stroke-width="1.6" marker-end="url(#arrow)"/>')
             body.append(f'<g class="graph-node" data-node="{name}" data-count="{count}">'
                         f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="8" '
-                        f'fill="{COLORS[node["kind"]]}" stroke="#59687c"/>')
+                        f'fill="{fill}" stroke="#59687c"/>')
             body.append(f'<text x="{x+width/2}" y="{y+20}" text-anchor="middle" font-size="12" '
-                        f'fill="#526175">{name}</text>')
+                        f'fill="#526175">{escape(caption)}</text>')
             for j,line in enumerate(lines):
                 body.append(f'<text x="{x+width/2}" y="{y+42+j*18}" text-anchor="middle" '
                             f'font-family="monospace" font-size="14">{escape(line)}</text>')
