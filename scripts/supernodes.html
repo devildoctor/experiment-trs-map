@@ -37,10 +37,11 @@ body.five > nav,body.five > main,body.five > #tracks,body.five > #legend{display
 </style>
 <section id="fivePanel" hidden><nav><strong id="fiveSummary"></strong><div id="fiveSlots"></div>
 <label>高亮<select id="fiveTrace"></select></label></nav>
+<div style="padding:7px 14px"><label>比较原串 <select id="fiveBase"></select></label> 与 <select id="fiveOther" aria-label="第二条比较路径"></select>　<strong id="fiveDifference"></strong></div>
 <div id="fiveRoutes" aria-label="按登记顺序排列的结构块"></div>
 <details id="fiveLiteral"><summary>展开所选路径的原始 GFA 步序</summary><div id="fiveCanvas" aria-label="所选路径的原始序列图"></div></details>
 <details id="fiveJunctions"><summary>核对有分子支持、连续走法未登记的相邻边</summary><select id="fiveJunction"></select><p id="junctionCounts"></p></details>
-<details id="fiveEvidence"><summary>路径序列与两两对齐</summary><p id="fiveStats"></p><pre id="fiveDNA"></pre><label>对齐到<select id="fiveOther"></select></label><pre id="fiveAlignment"></pre></details></section>
+<details id="fiveEvidence"><summary>路径序列与两两对齐</summary><p id="fiveStats"></p><pre id="fiveDNA"></pre><pre id="fiveAlignment"></pre></details></section>
 <script>/* CYTOSCAPE */</script><script>/* COMPARE */</script><script>/* PROJECTION */</script><script>
 'use strict';
 const data=/* DATA */;
@@ -403,25 +404,34 @@ function fiveWalk(p){
 }
 function drawStructureRows(ids,colors){
   const root=el('fiveRoutes');root.replaceChildren();
+  const selectedUse=new Map();
+  for(const id of ids)for(const v of paths[id]){
+    if(!selectedUse.has(v.supernode_id))selectedUse.set(v.supernode_id,new Set());
+    selectedUse.get(v.supernode_id).add(id);
+  }
   for(const p of ids){
     const info=data.path_info[p],section=document.createElement('section');
     section.className='structRow';section.dataset.path=p;section.style.borderColor=colors.get(p);
     const title=document.createElement('h3'),meta=document.createElement('small'),walk=document.createElement('div');
     title.textContent=p+' · '+info.length+' bp · '+info.molecule_keys.length+' 个支持分子';
-    meta.textContent='原始结构 · '+paths[p].length+' 次块访问 · 切点有并列 '+info.boundary_tied+'/'+info.boundary_assessed+' 个已评估分子 · 表示串改写 '+info.edited_bp+' bp';
+    const allOuterLocal=paths[p].every(v=>v.position_assessment==='path_local' && v.boundary_assessment==='uncertain_outer');
+    meta.textContent=(allOuterLocal?'全部块为路径局部（外切点未定） · ':'原始结构 · ')+paths[p].length+' 次块访问 · 切点有并列 '+info.boundary_tied+'/'+info.boundary_assessed+' 个已评估分子 · 表示串改写 '+info.edited_bp+' bp';
     walk.className='structWalk';
     for(const v of paths[p]){
       const node=nodes[v.supernode_id],button=document.createElement('button');
       const local=v.position_assessment==='path_local';
       button.className=local?'local':'';button.dataset.visit=v.visit_id;
-      const position=local?'路径局部':node.path_count>1?'多路径共享':'已定位';
+      const shared=[...selectedUse.get(v.supernode_id)];
+      const position=local?'路径局部':shared.length>1?'所选共享':node.path_count>1?'全图共享':'已定位';
       const status=v.boundary_assessment==='uncertain_outer'?'外切点未定':stateLabel(node,v);
-      button.textContent=pattern(node)+' ×'+v.repeat_count+' · '+position+(status?' / '+status:'');
+      const note=allOuterLocal?'':position+(status && status!==position?' / '+status:'');
+      button.textContent=pattern(node)+' ×'+v.repeat_count+(note?' · '+note:'');
+      button.title='所选路径 '+shared.join('、')+' · 全图 '+node.path_count+' 条登记 P · '+position;
       button.onclick=()=>{
         const original=v.original_variant_ids.map(k=>data.variants[k]).join('');
         const represented=v.represented_variant_ids.map(k=>data.variants[k]).join('');
         const edits=[];for(let i=0;i<original.length;i++)if(original[i]!==represented[i])edits.push((v.original_interval[0]+i)+' '+original[i]+'→'+represented[i]);
-        el('blockEvidence').textContent=p+' · '+v.supernode_id+' · ['+v.original_interval+') · '+position+'\n原始 '+original+'\n表示 '+represented+'\n原始 GFA '+v.original_gfa_walk.join(' → ')+(edits.length?'\n0 起点改写 '+edits.join('，'):'');
+        el('blockEvidence').textContent=p+' · '+v.supernode_id+' · ['+v.original_interval+') · '+button.title+'\n原始 '+original+'\n表示 '+represented+'\n原始 GFA '+v.original_gfa_walk.join(' → ')+(edits.length?'\n0 起点改写 '+edits.join('，'):'');
       };
       if(walk.childElementCount)walk.append('→');walk.append(button);
     }
@@ -445,13 +455,19 @@ function showFiveDetails(){
   for(const e of el('fiveCanvas').querySelectorAll('[data-paths]'))
     e.classList.toggle('dim',!!p&&!e.getAttribute('data-paths').split(' ').includes(p));
   for(const row of el('fiveRoutes').querySelectorAll('.structRow'))row.classList.toggle('dim',!!p&&row.dataset.path!==p);
-  const q=el('fiveOther').value;
-  el('fiveAlignment').textContent=p&&q&&p!==q?alignFive(el('fiveDNA').textContent,fiveWalks.get(q).map(s=>s.dna).join('')):'';
+  const base=el('fiveBase').value,q=el('fiveOther').value;
+  const a=(fiveWalks.get(base)||[]).map(s=>s.dna).join(''),b=(fiveWalks.get(q)||[]).map(s=>s.dna).join('');
+  const pair=base&&q&&base!==q;
+  el('fiveDifference').textContent=pair?describeRawDifference(a,b):'请选择两条不同的路径';
+  el('fiveAlignment').textContent=pair&&el('fiveEvidence').open?alignFive(a,b):'';
 }
 // Unit-cost global edit alignment. Retain ties on the displayed traceback.
-function alignFive(a,b){
+function describeRawDifference(a,b){
   const difference=rawDifference(a,b);
-  const measure=difference.lengthDifference===0?'原串等长，逐位差异 '+difference.mismatches+' 处':'原串长度相差 '+difference.lengthDifference+' bp，单段删除可匹配的起点 '+difference.starts+' 个'+(difference.starts?'（0 起点 '+difference.first+' 至 '+difference.last+'）':'');
+  return difference.lengthDifference===0?'原串等长，逐位差异 '+difference.mismatches+' 处':'原串长度相差 '+difference.lengthDifference+' bp，单段删除可匹配的起点 '+difference.starts+' 个'+(difference.starts?'（0 起点 '+difference.first+' 至 '+difference.last+'）':'');
+}
+function alignFive(a,b){
+  const measure=describeRawDifference(a,b);
   const d=Array.from({length:a.length+1},()=>new Uint32Array(b.length+1));
   for(let i=0;i<=a.length;i++)d[i][0]=i;
   for(let j=0;j<=b.length;j++)d[0][j]=j;
@@ -479,9 +495,10 @@ function drawFive(){
   for(const s of choices)for(const o of s.options)o.disabled=!!o.value&&o.value!==s.value&&ids.includes(o.value);
   fiveWalks=new Map(ids.map(p=>[p,fiveWalk(p)]));
   drawStructureRows(ids,colors);
-  for(const key of ['fiveTrace','fiveOther']){
+  for(const key of ['fiveTrace','fiveBase','fiveOther']){
     const s=el(key),old=s.value;s.replaceChildren();option(s,'',key==='fiveTrace'?'全部':'未选');
-    for(const p of ids)option(s,p,p);s.value=ids.includes(old)?old:'';
+    for(const p of ids)option(s,p,p);
+    s.value=ids.includes(old)?old:key==='fiveBase'?(ids[0]||''):key==='fiveOther'?(ids[1]||''):'';
   }
   const root=el('fiveCanvas');root.replaceChildren();
   el('fiveSummary').textContent=data.graph.locus+' · '+ids.length+' 条路径';
@@ -577,7 +594,8 @@ el('fiveCanvas').onclick=e=>{
   const p=e.target.closest('[data-paths]')?.getAttribute('data-paths');
   if(p&&!p.includes(' ')){el('fiveTrace').value=el('fiveTrace').value===p?'':p;showFiveDetails()}
 };
-for(const id of ['fiveTrace','fiveOther'])el(id).onchange=showFiveDetails;
+for(const id of ['fiveTrace','fiveBase','fiveOther'])el(id).onchange=showFiveDetails;
+el('fiveEvidence').ontoggle=showFiveDetails;
 let lastWidth=0;
 new ResizeObserver(()=>{
   const width=el('fiveCanvas').clientWidth;

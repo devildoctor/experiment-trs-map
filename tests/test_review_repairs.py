@@ -1,5 +1,8 @@
 """Regression cases from the November 22 point-graph review."""
 import json
+import os
+import shutil
+import subprocess
 from hashlib import sha256
 from pathlib import Path
 import random
@@ -87,6 +90,36 @@ class ReviewRepairs(unittest.TestCase):
                              ('ACNT','unknown','opaque_iupac'))
             with self.assertRaises(ValueError):
                 segment_hmm(('AC!T',dictionary,'HiFi'),assess_structure=assessed)
+
+    @unittest.skipUnless(os.environ.get('SAMTOOLS') or shutil.which('samtools'),'samtools is required for BAM integration')
+    def test_all_empty_bam_exports_reference_and_counts(self):
+        samtools=os.environ.get('SAMTOOLS') or shutil.which('samtools')
+        rng=random.Random(42)
+        left,right=[''.join(rng.choice('ACGT') for _ in range(250)) for _ in range(2)]
+        model=json.loads((ROOT/'catalogs/D1S80.structure.v1.json').read_bytes())
+        core=model['motifs'][0]['sequence']*2
+        model.update(start=250,end=250+len(core))
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);ref=root/'ref.fa';bed=root/'locus.bed';mp=root/'model.json'
+            ref.write_bytes(('>chr1\n'+left+core+right+'\n').encode())
+            bed.write_text(f"chr1\t250\t{model['end']}\tID=D1S80;BOUNDARY=confirmed\n")
+            mp.write_text(json.dumps(model))
+            bam=root/'bams/D1S80/test/HiFi/test.D1S80.bam';bam.parent.mkdir(parents=True)
+            sam=(f'@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:{500+len(core)}\n'
+                 f'z\t0\tchr1\t1\t60\t250M{len(core)}D250M\t*\t0\t0\t{left+right}\t*\n')
+            subprocess.run([samtools,'faidx',str(ref)],check=True)
+            subprocess.run([samtools,'view','-b','-o',str(bam),'-'],input=sam.encode(),check=True)
+            subprocess.run([samtools,'index',str(bam)],check=True)
+            cmd=[sys.executable,str(ROOT/'scripts/vntrpathgraph_cli.py'),'--bam-dir',str(root/'bams'),
+                 '--reference',str(ref),'--catalog',str(bed),'--locus','D1S80','--locus-model',str(mp),
+                 '--graph-mode','structure','--supernode-policy',str(ROOT/'catalogs/D1S80.supernodes.v1.json'),
+                 '--samtools',samtools,'--out',str(root/'out')]
+            subprocess.run(cmd,check=True,stdout=subprocess.PIPE)
+            out=root/'out/D1S80';summary=json.loads((out/'summary.json').read_bytes())
+            self.assertEqual((summary['paths'],summary['molecules']),(1,0))
+            self.assertEqual(summary['core_length_evidence']['complete_empty'],dict(records=1,molecules=1))
+            self.assertEqual(json.loads((out/'extraction_audit.jsonl').read_bytes())['core_status'],'complete_empty')
+            self.assertEqual(json.loads((out/'source_members.json').read_bytes())[0]['sequence'],core)
 
     def test_export_q_matrix_preserves_unknown_and_binds_delivery(self):
         from test_supernode_export import fixture

@@ -128,7 +128,7 @@
   tap(containerId(sn));el('toggle').click();check(cy.getElementById(parentId).empty(),'collapse descendants');
   tap(summaryId(sn));el('toggle').click();check(cy.getElementById(parentId).length===1 && viewport()===camera,'restore nested expansion');
   check(!performance.getEntriesByType('resource').some(r=>/^https?:/.test(r.name)),'offline');
-  return {initial_view:'overview',paths:Object.keys(paths).length,cytoscape:cytoscape.version,same_path:sameSummary,
+  return {initial_view:'five',paths:Object.keys(paths).length,cytoscape:cytoscape.version,same_path:sameSummary,
     module_visit:moduleVisit.visit_id,ordered_occurrences:moduleVisit.ordered_occurrence_ids.length,
     loss_visit:lossVisit,dual_walks:true,stable_viewport:true,overview_expand_collapse:true,expanded_visits:state.visit_count,adjacent_blocks_checked:adjacent,registered_trace_highlight:true,offline:true};
 })()
