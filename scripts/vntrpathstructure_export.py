@@ -153,6 +153,9 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
             'P0001 is reference when role=reference; other P records are observations; other traversable combinations are not observations.',
             'Display loss is not sequencing error correction; original and represented lengths are distinct.',
             'Source BAM selection is unchanged; no genome-wide competitive mapping or genotype claim.'])
+    if model.get('motifs') and repeat_type(model)=='STR':
+        from vntrstrgraph import write_observed_graph
+        summary['observed_str']=write_observed_graph(destination,locus.name,records,features,model)
     dump(destination/'summary.json',summary);dump(destination/'validation.json',validation)
     table=''.join('<tr>'+''.join('<td>'+escape(str(r[k]))+'</td>' for k in
         ['path','structure_group','expression','length','represented_length','molecules','loss_bp','count_status'])+'</tr>' for r in path_rows)
@@ -165,6 +168,10 @@ def export_structure(destination,locus,records,excluded,metadata,model_path,poli
 <p><a href="{locus.name}.structure.gfa">结构 GFA</a> · <a href="{locus.name}.path_sequences.txt">名称与完整序列 TXT</a> · <a href="paths.tsv">路径表</a> · <a href="structure_groups.tsv">路线成员与精确支持</a></p>
 <table><tr><th>Path</th><th>路线</th><th>原始结构表达</th><th>原始 bp</th><th>表示 bp</th><th>分子</th><th>损失 bp</th><th>注释状态</th></tr>{table}</table>
 <p>图中节点存固定实际碱基。P0001 为参考，不增加分子支持；其余完整 P 为观测，其他可走组合不代表额外序列。侧翼通过不代表全基因组唯一定位；模型单元数不是基因型或已验证拷贝数。</p>'''
+    if summary.get('observed_str',{}).get('page'):
+        link=summary['observed_str']['page']
+        insert=html.index('</h1>')+len('</h1>') if '</h1>' in html else html.index('</style>')+len('</style>')
+        html=html[:insert]+f'<p><a href="{escape(link,quote=True)}">观察路径五路径图（重复次数与中断）</a></p>'+html[insert:]
     if metadata.get('extraction_version'):
         html+='<p><a href="boundary_model.json">冻结边界模型</a> · <a href="extraction_audit.jsonl">切点及歧义证据</a></p>'
     (destination/'index.html').write_text(html,encoding='utf-8')

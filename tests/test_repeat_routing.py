@@ -51,6 +51,13 @@ class RepeatRoutingTests(unittest.TestCase):
             self.assertNotEqual(features['P0002']['signature'],features['P0003']['signature'])
             self.assertEqual((output/'str_legacy/paths.original.fa').read_bytes(),(output/'str_legacy/paths.represented.fa').read_bytes())
             self.assertFalse((output/'locus_model.efficient.json').exists())
+            graph=json.loads((output/'str_legacy/ATXN2.observed-str.json').read_bytes())
+            route=next(p for p in graph['paths'] if p['id']=='P0002')
+            self.assertEqual([(graph['nodes'][r['node']]['sequence'],r['count']) for r in route['runs']],
+                             [('CTG',8),('TTG',1),('CTG',4),('TTG',1),('CTG',8)])
+            self.assertEqual(len(route['molecule_ids']),len(records()[1]['molecules']))
+            self.assertEqual([b['unit_id'] for b in route['annotation']['blocks'] if b['interruption']],['M2','M2'])
+            self.assertIn('ATXN2.observed-str.html',(output/'str_legacy/index.html').read_text(encoding='utf-8'))
 
     def test_main_export_with_hmm_policy_routes_str_to_legacy(self):
         with tempfile.TemporaryDirectory() as temp:

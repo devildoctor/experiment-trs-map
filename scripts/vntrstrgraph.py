@@ -31,7 +31,7 @@ def _token(block):
 
 
 # 先共享前缀，再合并相同后缀状态；相同碱基位于不同上下文时不强行共用节点。
-def build_graph(locus, records, left, right, molecule_ids=None):
+def build_graph(locus, records, left, right, molecule_ids=None, *, core_only=False):
     """Share prefixes, then identical suffix states of count-blind block paths.
 
     Context remains part of node identity. Equal bases alone never justify
@@ -39,7 +39,9 @@ def build_graph(locus, records, left, right, molecule_ids=None):
     """
     if not records:
         raise ValueError("An STR graph requires at least one explicit path")
-    if not left or not right:
+    if core_only and (left or right):
+        raise ValueError('A core-only STR graph cannot contain reference flanks')
+    if not core_only and (not left or not right):
         raise ValueError("Both reference flanks must contain exact bases")
     molecule_ids = molecule_ids or {}
     records = sorted(records, key=lambda r: (r["kind"] != "reference", r["id"]))
@@ -95,19 +97,21 @@ def build_graph(locus, records, left, right, molecule_ids=None):
     if set(identifiers) & ({"L", "R"} | set(names.values())):
         raise ValueError("GFA segment and path identifiers must be distinct")
     # 两侧节点是外加的参考上下文，并不证明每个观测分子实际覆盖了这些侧翼。
-    nodes = {"L": dict(kind="reference_flank", sequence=left)}
+    nodes = {} if core_only else {"L": dict(kind="reference_flank", sequence=left)}
     nodes.update({name: dict(kind=states[cid]["token"][0],
                              sequence=states[cid]["token"][1])
                   for cid, name in names.items()})
-    nodes["R"] = dict(kind="reference_flank", sequence=right)
+    if not core_only:
+        nodes["R"] = dict(kind="reference_flank", sequence=right)
     edges, paths = set(), []
     node_support, edge_support = defaultdict(set), defaultdict(set)
     for record in records:
-        walk = ["L"]
+        walk = [] if core_only else ["L"]
         for index, block in zip(routes[record["id"]], record["annotation"]["blocks"]):
             walk.extend([names[canonical[index]]] *
                         (block["count"] if block["kind"] == "repeat" else 1))
-        walk.append("R")
+        if not core_only:
+            walk.append("R")
         sequence = "".join(nodes[node]["sequence"] for node in walk)
         expected = left + vntrstr.reconstruct(record["annotation"]["blocks"]) + right
         if sequence != expected:
@@ -124,9 +128,9 @@ def build_graph(locus, records, left, right, molecule_ids=None):
                           molecule_ids=sorted(support),
                           full_sequence_sha256=sha256(sequence.encode()).hexdigest()))
     return dict(version=VERSION, locus=locus, orientation="reference",
-                flank_scope="reference_context_25bp; not observed molecule ends",
+                flank_scope="observed_core" if core_only else "reference_context_25bp; not observed molecule ends",
                 count_scope="consecutive segment visits in one explicit path",
-                limitation="Candidate paths are not confirmed genotypes. Topology alone "
+                limitation=("Observed core paths. " if core_only else "Candidate paths are not confirmed genotypes. ") + "Topology alone "
                            "also admits walks/counts absent from the explicit P records.",
                 nodes={name: dict(node, molecule_support=len(node_support[name]),
                                   molecule_ids=sorted(node_support[name]))
@@ -190,7 +194,10 @@ def write_paths_svg(path, graph, paths=None):
         row_height = max(b[1] for b in boxes)+105
         y, x = top+47, 24
         body.append(f'<g class="graph-path" data-path="{escape(p["id"], quote=True)}">')
-        body.append(f'<text x="24" y="{top+8}" font-size="17" font-weight="bold">{escape(p["id"])}</text>')
+        label=p["id"]
+        if graph["flank_scope"]=="observed_core":
+            label+=f' · {p["annotation"]["length"]} bp · {len(p["molecule_ids"])} molecules'
+        body.append(f'<text x="24" y="{top+8}" font-size="17" font-weight="bold">{escape(label)}</text>')
         previous = None
         for run,(width,height,lines) in zip(runs, boxes):
             name, count = run["node"], run["count"]
@@ -233,6 +240,42 @@ def write_paths_svg(path, graph, paths=None):
 
 
 # 同一图模型生成 GFA、JSON、总拓扑图及逐路径 SVG，避免多套绘图语义。
+def write_observed_graph(destination, locus, records, features, model):
+    motifs = {m['id']:m['sequence'] for m in model['motifs']}
+    if any(len(bases)==1 for bases in motifs.values()):
+        return dict(status='legacy',reason='mononucleotide_model')
+    graph_records, molecule_ids = [], {}
+    for row in records:
+        blocks = []
+        for t in features[row['id']]['tokens']:
+            name, bases = t['motif'], t['exact_bases']
+            if t['status']=='unit' and motifs.get(name)==bases and t.get('edit_distance',0)==0:
+                if blocks and blocks[-1].get('unit_id')==name and blocks[-1]['kind']=='repeat':
+                    blocks[-1]['count']+=1
+                else:
+                    blocks.append(dict(kind='repeat',motif=bases,unit_id=name,count=1,
+                                       interruption=name in model.get('interruptions',[])))
+            else:
+                blocks.append(dict(kind='literal',exact_bases=bases,annotation=t['status'],model_unit=name))
+        graph_records.append(dict(id=row['id'],kind=row.get('role','observation'),
+                                  annotation=dict(blocks=blocks,sequence_sha256=row['sha256'],length=len(row['sequence']))))
+        molecule_ids[row['id']]=row['molecules']
+    graph=build_graph(locus,graph_records,'','',molecule_ids,core_only=True)
+    stem=locus+'.observed-str'
+    write_gfa(destination/(stem+'.gfa'),graph)
+    write_paths_svg(destination/(stem+'.svg'),graph)
+    # Embed the exact runs and blocks used above. The browser never segments DNA.
+    data=dict(locus=locus,nodes={k:v['sequence'] for k,v in graph['nodes'].items()},
+              paths=[dict(id=p['id'],role=p['kind'],length=p['annotation']['length'],support=len(p['molecule_ids']),
+                          runs=p['runs'],blocks=p['annotation']['blocks']) for p in graph['paths']])
+    template=Path(__file__).with_name('observed_str.html').read_text(encoding='utf-8')
+    page=stem+'.html'
+    (destination/page).write_text(template.replace('/* STR_DATA */',json.dumps(data,ensure_ascii=False).replace('<','\\u003c')),encoding='utf-8')
+    return dict(status='complete',page=page,gfa=stem+'.gfa',svg=stem+'.svg',
+                paths=len(graph['paths']),nodes=len(graph['nodes']),edges=len(graph['edges']),
+                self_links=sum(e['source']==e['target'] for e in graph['edges']))
+
+
 def write_outputs(destination, locus, records, left, right, molecule_ids=None):
     graph = build_graph(locus, records, left, right, molecule_ids)
     write_gfa(destination/f"{locus}.gfa", graph)
