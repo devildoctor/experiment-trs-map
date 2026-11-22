@@ -1,149 +1,124 @@
-# vntr-point-graph
+# vntr-point-graph · VNTR / STR 点位图
 
-**2026-11-17：已移除 de Bruijn 图功能。** 不再提供 `--dbg-view`、多 k 图与联合分支分析入口，主点图不再输出 `*.dbg.json`、`dbg_k`、`graph_support` 或 `low_local_graph_support`。现有分析结果未删除。纯序列单元注释保留于 `scripts/vntrunits.py`，终端证据库保留于 `scripts/vntrterminal.py`。下方历史分支及旧文档记录仅描述对应历史版本。
+在一个串联重复位点，哪些单元连续出现了多少次，中断在哪里，哪些分子实际走过同一条路径？根目录的 `vntr-point-graph` 从长读段 BAM 或已登记的路径成员建图，保留核心原串、单元顺序和分子支持。网页上的观察路径可以沿 GFA 走法逐碱基核对。
 
-**观察路径的 B2 取段。** 在 BAM 观察路径、结构分解和 all-read 入口，按 catalog 核心和左右 250 bp 模板取段。普通候选点图使用自己的锚定、候选聚类及分配流程。B0/B1/W1–W8 和 100 bp 诊断已移除，历史结果保留。完整流程见 [B2 使用与核对规则](docs/flank-b2.md)。B2 最初实现于历史分支 `feat/b2-only-20261109`；下方早期分支说明为历史记录。
+`main` 是仓库首页和当前运行入口。原有的候选读段筛选工具保留在 [experiment-trs-map/](experiment-trs-map/README.md)，可以独立使用。
 
-面向长读段 VNTR / STR 的可审计点位图分析工具。输入按位点整理的 BAM、匹配参考及位点目录，输出明确保存的序列路径、分子证据、重复单元注释和 GFA/SVG。
+## 选择入口
 
-主要功能：
+| 我想得到 | 从仓库根目录使用 | 运行后先看 |
+|---|---|---|
+| D1S80 的 VNTR 重复单元、路径和分子支持 | `scripts/vntrpathgraph_cli.py`，结构模式加超节点策略 | `D1S80/D1S80.supernodes.html`，默认对比五条观察路径 |
+| ATXN2 的 STR 单元次数和中断 | 同一入口，使用 ATXN2 冻结模型和 STR 结构策略 | `ATXN2/index.html`，也可打开 `ATXN2.observed-str.svg` 或同名 GFA |
+| 用已有成员重建 VNTR 图，比较全字典与精简字典 | `scripts/run_efficient_family.py` 加 `--supernode-policy` | 输出目录内的 `D1S80.supernodes.html`、`summary.json` 和改写账本 |
+| 按锚点建立候选序列点图 | `scripts/vntrgraph.py run` | 位点目录中的 `candidates.tsv`、`assignments.tsv`、`anchor_decisions.jsonl` |
+| 从单个 BAM 筛选候选 reads，输出 BAM、FASTQ 和审计表 | `experiment-trs-map/scripts/extract_candidate_reads.py` | 筛选工具的 `*.manifest.tsv`、`*.audit.tsv`。[用法与参数](experiment-trs-map/README.md) |
 
-1. 依据两侧锚点提取实际读段序列，按独立分子去重，保留定位与候选冲突。
-2. 生成候选序列点图，并提供可选 STR 单元图和 VNTR 路径结构图。
-3. 支持重复单元注释、VNTR HMM/SKIP 分解和精简字典；保留独立的 D1S80 16 bp 单元注释库。
+## 安装与输入
 
-程序独立实现，不依赖 danbing-tk、TRGT、LongTR、vamos 或 PGGB。当前属于研究实现；图路径、局部支持和单元注释不能自动视为已验证的基因型。
-
-新增完整观测序列的 **GFA S/L/P 结构图**：`scripts/vntrpathgraph_cli.py`，输出共享节点、分支、跳跃边与静态 SVG/PNG，默认无损；可通过显式逐位替换规则生成带损失台账的结构图。详见[设计、运行与限制](docs/PATH_SEQUENCE_GRAPH.zh-CN.md)。本功能分支为 `feat/path-structure-graph-20261105`。
-
-新增 **结构优先模式** `--graph-mode structure`：接入冻结单元划分，以重复段/模块建图，局部保留划分歧义，支持每条 path 累计 0–2 bp 的可逆显示归并。见[使用与规则](docs/STRUCTURE_FIRST.zh-CN.md)和[ATXN2/D1S80 计算节点验证](docs/STRUCTURE_FIRST_PILOT_20261106.zh-CN.md)。分支：`feat/structure-first-20261106`。
-
-## Versions and branches
-
-**当前分支为 `codex/structure-supernodes-20261118`**。当前功能和删除后的兼容性变化见 [使用与核验说明](docs/debruijn-removal-audit.md)。下表是历史开发分支。
-
-| 分支 | 用途 |
-|---|---|
-| [review-fixes](https://github.com/devildoctor/experiment-trs-map/tree/fix/vntr-review-20261029) | 当前修复、回归测试和中文代码解读 |
-| [vntr-point-graph](https://github.com/devildoctor/experiment-trs-map/tree/vntr-point-graph) | 基础点图、STR图及多k值VNTR图 |
-| [joint-support-unit-decomposition](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-joint-support-unit-decomposition) | 初版联合支持与候选单元分解 |
-| [joint-units-complete](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-joint-units-complete) | 完整事件证据及所有路径的单元注释 |
-| [terminal-unit-evidence](https://github.com/devildoctor/experiment-trs-map/tree/feature/d1s80-terminal-unit-evidence) | 经分子验证的右端模板，保留修复前版本 |
-
-各分支保存独立开发阶段；旧分支不具备后续分支的全部功能。仓库只提供程序、测试和目录配置，不提供真实 BAM、参考 FASTA 或逐分子分析结果。
-
-## Installation on Linux
-
-需要 Python 3.11+、samtools，以及图布局使用的 Graphviz (`dot` / `neato`)。锚定模块依赖固定版本的 edlib 和 pyahocorasick。
+下列示例在 Linux 上从仓库根目录运行。项目提供锚点比对和 B2 数值计算的固定依赖文件，已使用 CPython 3.13 验证。samtools 用于读写 BAM 和建立索引，Graphviz 用于静态布局。离线 HTML 可直接用浏览器打开。
 
 ```bash
-git clone --branch codex/structure-supernodes-20261118 https://github.com/devildoctor/experiment-trs-map.git vntr-point-graph
-cd vntr-point-graph
+git clone https://github.com/devildoctor/experiment-trs-map.git
+cd experiment-trs-map
 conda create -n vntr-point-graph -c conda-forge -c bioconda python=3.13 samtools graphviz pip
 conda activate vntr-point-graph
 python -m pip install -r requirements-anchors.txt -r requirements-flanks.txt
-python scripts/vntrgraph.py --help
+python scripts/vntrpathgraph_cli.py --help
 ```
 
-samtools 和参考构建版本应记录在运行记录中。集群脚本中的账号、分区、Python和数据路径是原部署配置，换环境后必须先调整。
+- **参考序列**使用与 BAM 比对时相同的 FASTA 和配套 `.fai`。示例目录针对 GRCh38。
+- **位点 BAM** 按 `<BAMS>/<位点>/<样本>/<HiFi|ONT|ONTUL>/<前缀>.<位点>.bam` 存放，每份 BAM 需要匹配的 BAI。
+- **位点目录**用 0 起点、右端不含的 BED。第 2、3 列定义搜索窗口，`REPEAT_START` 和 `REPEAT_END` 可指定其中的核心。比较位点时保留 `BOUNDARY` 的原始声明。[示例 BED](catalogs/grch38_structure_summary_atxn2_d1s80_abca7_v1.bed)
+- **分子身份**按样本、命名空间和读段名去重。默认从读组的文库标识取得命名空间，也可用 `--sources` 提供带 `bam`、`namespace` 两列的 TSV。跨平台小计可能重叠。
 
-## 从真实输入到图
+## 从 BAM 到观察路径图
 
-以下命令从仓库根目录执行。将环境变量 `REF`、`BAMS`、`MEMBERS` 指向带 FAI 的 GRCh38 FASTA、按位点整理的 BAM 目录及已有成员 JSON。输出目录应为新目录。
+先把 `REF` 与 `BAMS` 改为实际路径，并为 `OUT` 选择新的运行目录。两条命令使用同一份目录表，各自写入位点子目录。
 
 ```bash
-CAT=catalogs/grch38_structure_summary_atxn2_d1s80_abca7_v1.bed
-python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" --catalog "$CAT" --locus D1S80 --graph-mode structure --locus-model catalogs/D1S80.structure.v1.json --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 --out out_bam
-python scripts/run_efficient_family.py --input "$MEMBERS" --reference "$REF" --model catalogs/D1S80.structure.v1.json --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 --out out_members
-python scripts/vntrsupernode_export.py out_bam/D1S80 --source-root .
-python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" --catalog "$CAT" --locus ATXN2 --graph-mode structure --locus-model catalogs/ATXN2.structure.v1.json --structure-policy catalogs/ATXN2.structure-policy.v1.json --out out_str
-python scripts/vntrgraph.py run --bam-dir "$BAMS" --reference "$REF" --catalog "$CAT" --locus D1S80 --out out_candidates
-```
-
-D1S80 打开 `D1S80.supernodes.html`。ATXN2 的 `ATXN2.observed-str.html`、同名 GFA 与 SVG 使用相同的观察路径。候选入口的候选及其支持数另有统计口径。省略超节点的 `--q` 使用全字典。精简字典保留冻结模型中明确命名的中断单元，选择清单记录这些单元。B2 v2.2 在切点审计及汇总中区分完整空核心和空/非空并列。全切点重合的观察按分子键登记，GFA 的观察 P 保存非空原串。
-
-超节点包中的 `*.path_sequences.txt` 按 GFA 路径名列出原串。成员导入记录可独立核实的位点字段；BAM 输入清单登记每份 BAM、BAI 的 SHA-256、参考核心、边界模型及目录。来源文件哈希可在对应 Git 检出上复核。历史输入与旧交付包按其记录的版本读取。
-
-## Input preparation
-
-| 输入 | 格式与要求 |
-|---|---|
-| 位点读段 | BAM及匹配BAI；与参考使用相同染色体命名和组装版本 |
-| 参考 | FASTA及FAI，保留实际采用的ALT/decoy信息 |
-| 位点目录 | BED，0-based半开坐标；明确搜索窗口与重复区边界 |
-| 可选分子来源 | TSV列名 `bam, namespace`；相对路径相对此TSV解析 |
-| 可选参考等价关系 | 明确验证的参考区间等价表，不能用来默认忽略ALT |
-
-推荐目录：
-
-```text
-bamdata_by_locus/<locus>/<sample>/<HiFi|ONT|ONTUL>/<name>.<locus>.bam
-```
-
-BED第4列使用 `ID=...;MOTIFS=...;REPEAT_START=...;REPEAT_END=...;BOUNDARY=confirmed`。
-第2、3列是搜索窗口，重复区必须位于窗口内。`confirmed` 是输入目录的声明，不是程序新提供的实验验证。不能为凑整数单元而裁剪端部。
-
-主图、read-view、structure/summary 的分子键统一为 `[sample, namespace, read_name]`。`namespace` 优先取 `--sources` 的显式配置，否则取该记录 RG 对应的 LB，缺失时为空；旧结果缺 namespace 时也按空值兼容。BAM 路径和平台不自动成为 namespace。同一分子跨BAM、跨平台重复出现只计一次；平台小计可能重叠。主/补充记录不会拼接成未观测的完整序列。
-
-## Usage
-
-以下命令应在已分配的计算节点执行；每次使用新的输出目录。
-
-### Scenario 1: anchored point graph
-
-```bash
-REFERENCE=/path/to/reference.fa
+REF=/path/to/GRCh38.fa
 BAMS=/path/to/bamdata_by_locus
-CATALOG=catalogs/grch38_pointgraph_10_loci_v1.bed
-RUN=/path/to/new-run
-python scripts/vntrgraph.py run --bam-dir "$BAMS" --reference "$REFERENCE" \
-  --catalog "$CATALOG" --locus D1S80 --samtools "$(command -v samtools)" \
-  --out "$RUN/pointgraph"
+CAT=catalogs/grch38_structure_summary_atxn2_d1s80_abca7_v1.bed
+OUT=run-point-graphs
+
+python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" \
+  --catalog "$CAT" --locus D1S80 --graph-mode structure \
+  --locus-model catalogs/D1S80.structure.v1.json \
+  --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 --out "$OUT"
+
+python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" \
+  --catalog "$CAT" --locus ATXN2 --graph-mode structure \
+  --locus-model catalogs/ATXN2.structure.v1.json \
+  --structure-policy catalogs/ATXN2.structure-policy.v1.json --out "$OUT"
 ```
 
-D1S80严格模式可能因主染色体和ALT上的锚点重复而得不到完整候选。只有验证参考与等价表匹配后，才显式增加
-`--reference-equivalence catalogs/grch38_d1s80_alt_equivalence_v1.tsv`；结果应继续保留等价映射假设。
+D1S80 示例以 HMM 注释并选择有效字典，省略 `--q` 即使用全字典。`q` 控制字典选择，随附超节点策略中的 3% 是每条观察路径允许的表示层碱基改写上限。ATXN2 示例沿用冻结字典和 `seed_dp`。图上分别标出该路径的连续重复次数和支持它的分子键数。
 
-## Output files
+### 从同一批成员重新建图
 
-| 文件/目录 | 解释 |
-|---|---|
-| `<locus>.gfa/.svg/.json` | 点图及明确保存的路径 |
-| `molecules.tsv`, `anchor_decisions.jsonl` | 原始分子切片、来源、锚定判断与拒绝原因 |
-| `candidates.tsv`, `assignments.tsv`, `genotypes.tsv` | 候选、分配、候选组合与不确定性 |
-| `motifs.tsv`, `tokens.tsv` | 字典与原始切片注释 |
-| `manifest.json`, `parameters.tsv` | 方法版本、参数、输入来源与哈希 |
-
-原始碱基和分子身份可能存在于TSV/JSON/GFA中；这些分析输出不是源码发布内容。
-
-点图切片之间使用0M连接。GFA节点、边数或自环次数不能直接当作生物学CN。
-
-## Tests and reproducibility
+下面直接使用上一步生成的成员文件。成员入口的 `--out` 就是最终包目录，可对两个入口分别做完整性检查。
 
 ```bash
-python -m unittest discover -s tests -v
-python tests/integration_synthetic.py
+python scripts/run_efficient_family.py --input "$OUT/D1S80/source_members.json" \
+  --reference "$REF" --model catalogs/D1S80.structure.v1.json \
+  --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 \
+  --out "$OUT/D1S80-from-members"
+
+python scripts/vntrsupernode_export.py "$OUT/D1S80" --source-root .
+python scripts/vntrsupernode_export.py "$OUT/D1S80-from-members" --source-root .
 ```
 
-真实数据运行应保存源码提交、输入哈希、参考身份、参数、调度日志和独立验收结果。Slurm模板位于 `slurm/`，要求先准备其指定的源码快照及校验清单，不能直接在登录节点运行分析。
+成员与模型有明确冲突时，程序在创建结果目录前报错。旧成员缺少位点名、组装等来源字段时，`input_identity.json` 逐项列出能核实的证据和缺项。
 
-## Interpretation and limitations
+### 生成候选序列或筛选读段
 
-- REF是参考上下文，OBS是实际观测，CAND是推断候选；REF/CAND不贡献观测分子票。
-- 局部片段可以支持所覆盖区间，不能据此证明整条候选或完整CN。
-- 完整单元、partial与unknown分别报告。长度除以16仅是描述性长度比。
-- 描述性编辑代价、条件支持比例均不是基因型概率或等位频率。
-- 注释歧义、倍性冲突和位置等价假设必须保留；不能强取两个最大簇作为确定基因型。
-- 当前测试证明实现与产物契约，不构成人群分型准确率或临床性能验证。
+已有按位点整理的 BAM 时，第一条命令按锚点建立 D1S80 候选点图。只有单个已排序并建索引的 BAM、需要先选出读段时，可以使用第二条命令，示例目录指定 DMPK。
 
-## Documentation
+```bash
+python scripts/vntrgraph.py run --bam-dir "$BAMS" --reference "$REF" \
+  --catalog "$CAT" --locus D1S80 --out "$OUT/candidates"
 
-- [2026-10-29 历史修复与验证](docs/CODE_FIXES_20261029.zh-CN.md)
-- [历史中文代码解读](docs/CODE_WALKTHROUGH.zh-CN.md)、[原始检查记录](docs/CODE_REVIEW_20261029.zh-CN.md)
+python -B experiment-trs-map/scripts/extract_candidate_reads.py \
+  --bam /path/to/sample.bam --repeats experiment-trs-map/catalogs/example.repeats.bed \
+  --repeat-id DMPK --output-dir "$OUT/reads-DMPK"
+```
 
-- [完整方法与历史说明](METHODS.md)
-- [锚定与来源规则](ANCHOR_UPDATE.md)
-- [STR表达](STR_EXPRESSION.md)与[STR单元图](STR_GRAPH.md)
-- [读段视图](READ_VIEW.md)、[结构视图](STRUCTURE_VIEW.md)
+## 从结果追溯到碱基
 
-README组织方式参考 [ChaissonLab/danbing-tk](https://github.com/ChaissonLab/danbing-tk) 的功能、依赖、分场景运行和文件说明。算法与实现均按本仓库实际代码说明，不代表复现danbing-tk的性能。问题反馈请附源码提交、命令、参数和已去除敏感数据的错误日志，提交至仓库Issues。
+| 输出 | 能核对什么 |
+|---|---|
+| `<位点>.path_sequences.txt`、`source_members.json` | 按 GFA 的 P 名查角色、原始长度、完整核心序列和分子成员。P0001 是参考，观察路径从 P0002 起。 |
+| `extraction_audit.jsonl`、`boundary_model.json` | BAM 入口的逐记录切点、并列和使用的边界模型。B2 v2.2 对完整空核心及空/非空并列单列证据。 |
+| `<位点>.original.gfa`、`<位点>.represented.gfa`、`losses.jsonl` | VNTR 超节点包的原始走法、表示走法和逐碱基改写。按账本可以反向还原原串。 |
+| `path_visits.jsonl`、`display_graph.json` | VNTR 结构块的有序访问、次数、位置可比性和对应的原始 GFA 切片。 |
+| `input_manifest.json`、`provenance.json`、`validation.json` | VNTR 超节点包的输入、模型与源码版本、文件哈希以及重建检查。 |
+| `ATXN2.observed-str.gfa`、`ATXN2.observed-str.svg` | STR 观察核心的同一组登记走法，以连续次数和冻结中断单元展示。 |
+
+同一条 P 可由多个分子键支持。两条相接边各自有支持时，仍须查看有多少条登记 P 连续经过两边。节点数、自环次数和描述性长度比均需结合具体路径及边界证据解读。报告生物学拷贝数或基因型还需独立验证。
+
+## 测试与其他工作流
+
+```bash
+export SAMTOOLS="$(command -v samtools)"
+python -m unittest discover -s tests
+python tests/integration_synthetic.py
+python -B -m unittest discover -s experiment-trs-map/tests
+```
+
+前两项分别检查点位图的接口和合成 BAM 到图的流程，第三项检查旧筛选工具。前端的投影与序列比较可用 Node.js 运行 `node tests/test_supernode_projection.js` 和 `node tests/test_supernode_compare.js`。
+
+- [B2 核心提取](docs/flank-b2.md) · [完整观察路径的定义与 GFA](docs/PATH_SEQUENCE_GRAPH.zh-CN.md) · [结构优先的分解规则](docs/STRUCTURE_FIRST.zh-CN.md)
+- [锚点和来源](ANCHOR_UPDATE.md) · [读段视图](READ_VIEW.md) · [STR 单元图](STR_GRAPH.md) · [结构视图](STRUCTURE_VIEW.md)
+- [VNTR 有效字典与家族图](docs/efficient-motif-family.md) · [HMM 参数化](docs/hmm-parameter-display.md) · [Slurm 作业模板](slurm/)。集群运行前请按本地环境调整分区、数据和依赖路径。
+
+## 分支与历史版本
+
+下表列出 2026-11-22 合入 `main` 的 GitHub 分支快照。链接固定到当时的提交，便于复现旧接口。现行根目录程序以经过验收的 `77d6bfd` 为基础。多 k 值 de Bruijn 图与联合分支证据可在相应历史版本中查看。[接口演变说明](docs/debruijn-removal-audit.md)
+
+| 开发阶段 | 分支快照 |
+|---|---|
+| 原 `main` 的候选读段工具 | [main · 70dbcdb](https://github.com/devildoctor/experiment-trs-map/tree/70dbcdb451a8e075ac298a7c6565d3c03d05fd02)，现位于 [experiment-trs-map/](experiment-trs-map/README.md) |
+| 点图、D1S80 联合证据与末端模板 | [vntr-point-graph](https://github.com/devildoctor/experiment-trs-map/tree/47d50079c255656a00f1e0caa5cb795e74b75c7b) · [feature/d1s80-joint-support-unit-decomposition](https://github.com/devildoctor/experiment-trs-map/tree/bd9542c1e213063dcfda31f2efc34dd5761d828e) · [feature/d1s80-joint-units-complete](https://github.com/devildoctor/experiment-trs-map/tree/5be0d5cfe9b707c1a64aac8e4e520ff27094329f) · [feature/d1s80-terminal-unit-evidence](https://github.com/devildoctor/experiment-trs-map/tree/5be507688fe7d1f8da4c1786fd85d6df8dfccb0e) |
+| 证据语义、冻结字典与结构图 | [fix/vntr-review-20261029](https://github.com/devildoctor/experiment-trs-map/tree/bb3bb8eb0731283b4b3b99ba6d129ae6ae6bff2a) · [feat/frozen-partition-20261105](https://github.com/devildoctor/experiment-trs-map/tree/491ae44f732498a99f30f6d18b8ab5aeec455210) · [feat/path-structure-graph-20261105](https://github.com/devildoctor/experiment-trs-map/tree/e9bcadec55bd5b57a99e1611e3fbeddc2d7cd957) · [feat/structure-first-20261106](https://github.com/devildoctor/experiment-trs-map/tree/9c48c2b85a6516e6f6350c8dc464662f3fec1c38) |
+| HMM、有效字典与观察路径超节点 | [feat/hmm-parameter-display-20261110](https://github.com/devildoctor/experiment-trs-map/tree/69df097fa485e438d21a52bd15a0c14c6952e09b) · [feat/efficient-motif-family-3pct-20261111](https://github.com/devildoctor/experiment-trs-map/tree/cd3adc0f7a6fb6b95345a5b19b7bd1745d9c3f18) · [codex/structure-supernodes-20261118](https://github.com/devildoctor/experiment-trs-map/tree/77d6bfdd7d374cfc5fbfc83274667d5c1ef8665e) |
