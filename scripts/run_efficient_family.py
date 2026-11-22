@@ -23,21 +23,82 @@ def annotate(records,model_path,locus):
     return model,model_hash,features,tokens,slots
 
 
+def member_identity(records, model, fasta_sequence=None):
+    """Compare independent member evidence before constructing paths from the model."""
+    if len({r['id'] for r in records}) != len(records):
+        raise ValueError('Member identity: duplicate path ID')
+    refs = [r for r in records if r.get('role') == 'reference']
+    if len(refs) > 1 or (refs and refs[0]['id'] != 'P0001'):
+        raise ValueError('Member identity: expected a unique reference named P0001')
+    checked = set()
+    expected = {k: model[k] for k in ('locus', 'assembly', 'chrom', 'start', 'end')}
+
+    def compare(key, value, source):
+        if value != expected[key]:
+            raise ValueError(f'Member identity mismatch in {source}: {key}={value!r}, expected {expected[key]!r}')
+        checked.add(key)
+
+    for row in records:
+        if row.get('sha256') != sha256(row['sequence'].encode('ascii')).hexdigest():
+            raise ValueError(f"Member identity: sequence hash mismatch in {row['id']}")
+        for item in (row, *row.get('observations', [])):
+            for key in ('locus','assembly','chrom'):
+                if item.get(key) is not None:
+                    compare(key, item[key], row['id'])
+            interval = item.get('reference_interval')
+            if isinstance(interval, dict):
+                if 'chrom' in interval: compare('chrom', interval['chrom'], row['id'])
+                bounds = (interval.get('start'),interval.get('end'))
+            elif isinstance(interval, (tuple,list)) and len(interval) in (2,3):
+                if len(interval)==3: compare('chrom',interval[0],row['id'])
+                bounds = interval[-2:]
+            elif interval is None:
+                continue
+            else:
+                raise ValueError(f"Member identity: malformed reference_interval in {row['id']}")
+            if any(type(x) is not int for x in bounds) or bounds[0]>bounds[1]:
+                raise ValueError(f"Member identity: invalid reference_interval in {row['id']}")
+            if item is row and row.get('role')=='reference':
+                compare('start', bounds[0], row['id'])
+                compare('end', bounds[1], row['id'])
+            elif bounds[1]<model['start'] or bounds[0]>model['end']:
+                raise ValueError(f"Member identity: disjoint reference interval in {row['id']}: {bounds}")
+    if refs:
+        ref = refs[0]
+        if len(ref['sequence']) != model['end']-model['start']:
+            raise ValueError('Member identity: reference length differs from the model interval')
+        if ref.get('molecules') or ref.get('observations'):
+            raise ValueError('Member identity: reference has observed support')
+        if fasta_sequence is not None:
+            if ref['sequence'] != fasta_sequence:
+                raise ValueError('Member identity: reference bases differ from supplied FASTA')
+            checked.add('reference_bases')
+    missing = sorted((set(expected) | {'reference_bases'}) - checked)
+    return dict(status='partially_verified' if missing else 'verified',
+                checked=sorted(checked), missing=missing, reference_in_members=bool(refs))
+
+
 def run(input_path,model_path,out,q=None,fraction=.03,reference=None,render=True,supernode_policy=None):
     start=time.monotonic()
     records=json.loads(input_path.read_text());original_model=json.loads(model_path.read_text())
     require_original_model(original_model)
     if supernode_policy is not None and q is not None and not 0 <= q <= 1:
         raise ValueError('q must be in [0,1]')
-    out.mkdir(parents=True,exist_ok=False)
     locus=Locus(original_model['locus'],original_model['chrom'],original_model['start'],original_model['end'],(),boundary_status=original_model['boundary_status'])
+    reference_sequence=None
+    if reference is not None:
+        with IndexedFastaReference(reference) as fasta:
+            reference_sequence=fasta.fetch(locus.chrom,locus.start,locus.end).upper()
+    identity=member_identity(records,original_model,reference_sequence)
     for r in records:r.setdefault('source_path_id',r['id'])
     if not any(r.get('role')=='reference' for r in records):
         if reference is None:raise ValueError('An observation-only input needs its reference FASTA')
-        with IndexedFastaReference(reference) as fasta:sequence=fasta.fetch(locus.chrom,locus.start,locus.end).upper()
-        records=assign_reference_paths(records,sequence,[locus.chrom,locus.start,locus.end])
+        records=assign_reference_paths(records,reference_sequence,[locus.chrom,locus.start,locus.end])
     records.sort(key=lambda r:r['id'])
-    assert records[0]['id']=='P0001' and records[0]['role']=='reference'
+    if records[0]['id']!='P0001' or records[0].get('role')!='reference':
+        raise ValueError('Member identity: invalid reference path ordering')
+    out.mkdir(parents=True,exist_ok=False)
+    dump(out/'input_identity.json',identity)
     dump(out/'source_members.json',records);dump(out/'locus_model.original.json',original_model)
     table(out/'input_path_mapping.tsv',[dict(path=r['id'],source_path=r.get('source_path_id',''),role=r['role'],sha256=r['sha256']) for r in records])
     kind=repeat_type(original_model)
@@ -53,7 +114,7 @@ def run(input_path,model_path,out,q=None,fraction=.03,reference=None,render=True
     if kind=='STR':
         from vntrpathstructure_export import export_structure
         folder=out/'str_legacy';folder.mkdir()
-        metadata=dict(backbone_path='P0001',processing=processing)
+        metadata=dict(backbone_path='P0001',processing=processing,input_identity=identity)
         summary=export_structure(folder,locus,records,[],metadata,model_path,
             str_policy_path(model_path,locus.name),0,0,'dot' if render else None)
         stats=summary['graph_stats']['structure']

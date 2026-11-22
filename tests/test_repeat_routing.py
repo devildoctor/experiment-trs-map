@@ -20,7 +20,7 @@ LOCUS=Locus('ATXN2','chr12',111598950,111599019,(),boundary_status='confirmed')
 def records():
     two='CTG'*8+'TTG'+'CTG'*4+'TTG'+'CTG'*8
     one='CTG'*8+'TTG'+'CTG'*13
-    rs=[record('P0001',two),record('P0002',two),record('P0003',one)]
+    rs=[record('P0001',two+'CTG'),record('P0002',two),record('P0003',one)]
     rs[0].update(role='reference',molecules=[],hifi_molecules=[],samples={},observations=[],
                  reference_interval=dict(chrom='chr12',start=111598950,end=111599019))
     for r in rs[1:]:r['role']='observation'
