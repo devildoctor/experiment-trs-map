@@ -60,7 +60,7 @@ python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" --catal
 python scripts/vntrgraph.py run --bam-dir "$BAMS" --reference "$REF" --catalog "$CAT" --locus D1S80 --out out_candidates
 ```
 
-D1S80 打开 `D1S80.supernodes.html`。ATXN2 的 `ATXN2.observed-str.html`、同名 GFA 与 SVG 使用相同的观察路径。候选入口的候选及其支持数另有统计口径。省略超节点的 `--q` 使用全字典。B2 v2.2 在切点审计及汇总中区分完整空核心和空/非空并列。全切点重合的观察按分子键登记，GFA 的观察 P 保存非空原串。
+D1S80 打开 `D1S80.supernodes.html`。ATXN2 的 `ATXN2.observed-str.html`、同名 GFA 与 SVG 使用相同的观察路径。候选入口的候选及其支持数另有统计口径。省略超节点的 `--q` 使用全字典。精简字典保留冻结模型中明确命名的中断单元，选择清单记录这些单元。B2 v2.2 在切点审计及汇总中区分完整空核心和空/非空并列。全切点重合的观察按分子键登记，GFA 的观察 P 保存非空原串。
 
 超节点包中的 `*.path_sequences.txt` 按 GFA 路径名列出原串。成员导入记录可独立核实的位点字段；BAM 输入清单登记每份 BAM、BAI 的 SHA-256、参考核心、边界模型及目录。来源文件哈希可在对应 Git 检出上复核。历史输入与旧交付包按其记录的版本读取。
 

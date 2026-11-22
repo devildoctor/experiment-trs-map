@@ -294,8 +294,8 @@ def main():
     if flank_context:
         for name in ['vntrflankalign.py']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-    if args.supernode_policy:
-        from vntrsupernode_export import export_supernodes,digest as file_digest
+    if args.graph_mode=='structure':
+        from vntrsupernode_export import digest as file_digest
         for entry in metadata.get('input_files',[]):
             bam=Path(entry['path'])
             entry['sha256']=file_digest(bam)
@@ -308,13 +308,17 @@ def main():
         if args.previous_members: metadata['previous_members_sha256']=file_digest(args.previous_members)
         metadata['reference_index_sha256']=file_digest(Path(str(args.reference)+'.fai'))
         if args.structures_json: metadata['input_kind']='structures'
+    if args.supernode_policy:
+        from vntrsupernode_export import export_supernodes
         summary=export_supernodes(destination,locus,records,args.locus_model,args.supernode_policy,
                                  input_path=args.structures_json,q=args.q,metadata=metadata)
         print(json.dumps(summary),flush=True)
         return
     if args.graph_mode=='structure':
         from vntrpathstructure_export import export_structure
-        for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py']:
+        commit=subprocess.run(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True) if shutil.which('git') else None
+        metadata['source_commit']=commit.stdout.strip() if commit and commit.returncode==0 else None
+        for name in ['vntrpathstructure.py','vntrpathstructure_export.py','vntrstructure.py','vntrpartition.py','vntrmotifs.py','vntrstrgraph.py','observed_str.html']:
             metadata['source_hashes'][name]=sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
         summary=export_structure(destination,locus,records,excluded,metadata,args.locus_model,args.structure_policy,
             structure_budget(structure_policy.get('schema_version'),args.loss_budget,args.max_loss_bp),args.preview_paths,args.dot,rows if args.structures_json else None,

@@ -19,13 +19,14 @@ def effective_model(full, choice):
 
 
 def select_motifs(model,tokens,q=.1):
-    """Enumerate the same objective/constraints as vamos effMotifILP.py.
+    """Enumerate the vamos objective, retaining named interruptions when present.
 
     Counts are unit occurrences across registered P, including REF, not allele
     frequencies. Terminal-only templates are outside the compression problem.
     """
     if not 0<=q<=1:raise ValueError('q must be in [0,1]')
     sequences={m['id']:m['sequence'] for m in model['motifs']}
+    frozen=set(model.get('interruptions',[])).intersection(sequences)
     counts=Counter(t['motif'] for ts in tokens.values() for t in ts
                    if t['status']=='unit' and t['motif'] in sequences)
     ids=sorted(sequences,key=lambda m:(-counts[m],m))
@@ -48,8 +49,13 @@ def select_motifs(model,tokens,q=.1):
     best=None;examined=0
     for size in range(1,len(ids)+1):
         for subset in combinations(ids,size):
-            examined+=1;mapping={}
+            examined+=1
+            if not frozen.issubset(subset):continue
+            mapping={}
             for a in ids:
+                if a in frozen:
+                    mapping[a]=a
+                    continue
                 choices=[b for b in subset if counts[b]>=counts[a]]
                 if not choices:break
                 mapping[a]=min(choices,key=lambda b:(distances[a][b],-counts[b],b))
@@ -60,7 +66,7 @@ def select_motifs(model,tokens,q=.1):
             rank=(delta*len(kept)+cost,len(kept),cost,kept)
             if best is None or rank<best[0]:best=(rank,kept,mapping,cost)
     _,kept,mapping,cost=best
-    return dict(q=q,original_ids=sorted(ids),selected_ids=kept,mapping=mapping,
+    selection=dict(q=q,original_ids=sorted(ids),selected_ids=kept,mapping=mapping,
         counts={m:counts[m] for m in ids},distances=distances,delta=delta,
         pair_distance_quantile=float(quantile),weighted_template_cost=cost,
         objective=delta*len(kept)+cost,candidate_subsets=examined,
@@ -68,3 +74,6 @@ def select_motifs(model,tokens,q=.1):
         count_scope='Each registered P once, including reference; terminal-only templates excluded.',
         source='https://github.com/ChaissonLab/vamos/blob/3dd3b429922399e9f14e9bfebc0ea3056b18fd0a/buildTRs/lib/effMotifILP.py',
         cost_scope='Frequency-weighted template distance, distinct from actual per-P base edits.')
+    if frozen:
+        selection.update(retained_interruptions=sorted(frozen),algorithm='exact_subset_enumeration_vamos_objective_with_frozen_interruptions')
+    return selection

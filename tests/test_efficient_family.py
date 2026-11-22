@@ -27,6 +27,15 @@ class EffectiveMotifTests(unittest.TestCase):
         self.assertEqual(r['selected_ids'],['A','C']);self.assertNotIn('RT',r['counts'])
         self.assertEqual(select_motifs(model,ts,0)['selected_ids'],['A','B','C'])
 
+    def test_curated_interruption_survives_dictionary_compression(self):
+        model=dict(motifs=[dict(id='M1',sequence='ACGTCATG'),dict(id='M2',sequence='TTGAGCCT')])
+        tokens={'P':[dict(status='unit',motif=m) for m in ['M1']*12+['M2']+['M1']*12]}
+        self.assertEqual(select_motifs(model,tokens,.2)['selected_ids'],['M1'])
+        result=select_motifs(dict(model,interruptions=['M2']),tokens,.2)
+        self.assertEqual(result['selected_ids'],['M1','M2'])
+        self.assertEqual(result['mapping']['M2'],'M2')
+        self.assertEqual(result['retained_interruptions'],['M2'])
+
     def test_effective_dictionary_actually_changes_hmm_choices_not_bases(self):
         dictionary=[dict(id='A',base='A',sequence=A,level='base')]
         result=segment_hmm((A+B+A,dictionary,'HiFi'))

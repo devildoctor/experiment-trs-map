@@ -101,6 +101,10 @@ def validate_dictionary(out, prov):
         raise ValueError('Incomplete effective dictionary manifest')
     choice=read(out/'dictionary_selection.json')
     model=read(out/'locus_model.efficient.json')
+    if prov.get('bundle_version',1)>=3 or 'retained_interruptions' in choice:
+        frozen=set(original.get('interruptions',[])).intersection(choice['original_ids'])
+        if set(choice.get('retained_interruptions',[]))!=frozen or any(choice['mapping'].get(m)!=m for m in frozen):
+            raise ValueError('Frozen interruptions missing or remapped in effective dictionary')
     if (choice['q']!=q or prov.get('full_model_sha256')!=original_hash
             or prov['model_sha256']!=files['locus_model.efficient.json']
             or prov.get('effective_model_sha256')!=prov['model_sha256']
@@ -391,7 +395,8 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
     commit=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
     sources=[*ROOT.glob('scripts/vntr*.py'),ROOT/'scripts/run_efficient_family.py',ROOT/'scripts/supernodes.html',ROOT/'scripts/supernode_compare.js',
              ROOT/'scripts/supernode_projection.js',ROOT/'third_party/cytoscape-3.30.4/cytoscape.min.js']
-    provenance=dict(bundle_version=2,locus=locus.name,decoder='hmm_assessed',dictionary=policy['annotation_dictionary'],dictionary_q=q,policy=policy,
+    bundle_version=3 if q is not None and choice.get('retained_interruptions') else 2
+    provenance=dict(bundle_version=bundle_version,locus=locus.name,decoder='hmm_assessed',dictionary=policy['annotation_dictionary'],dictionary_q=q,policy=policy,
         full_model_sha256=digest(model_path),model_sha256=mhash,policy_sha256=digest(resolved_policy),boundary_model_hashes=sorted({o['boundary_model_sha256']
             for r in records for o in r['observations'] if o.get('boundary_model_sha256')}),
         source_commit=commit.stdout.strip() if commit.returncode==0 else None,
