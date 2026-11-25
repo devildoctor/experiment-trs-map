@@ -8,6 +8,7 @@ import csv
 import shutil
 import subprocess
 import time
+import warnings
 
 from vntrdisplay_export import dump,table
 from vntreffmotifs import effective_model,require_original_model,select_motifs
@@ -285,6 +286,14 @@ def validate_bundle(out,source_root=None):
                 node_and_edge_support=True,manifest_coverage=True,hashes=True)
 
 
+def dictionary_q_for_size(size):
+    if size >= 9:
+        return 0.2
+    if size >= 4:
+        return 0.1
+    return None
+
+
 def export_supernodes(out,locus,records,model_path,policy_path,render=True,input_path=None,*,q=None,metadata=None):
     start=time.monotonic()
     policy=load_policy(policy_path)
@@ -292,14 +301,18 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
     metadata=metadata or {}
     original=read(model_path)
     require_original_model(original)
+    standard_q=dictionary_q_for_size(len(original['motifs']))
+    if q is not None:
+        if type(q) not in (int,float) or not 0 <= q <= 1:
+            raise ValueError('q must be in [0,1]')
+        if q != standard_q:
+            warnings.warn(f'VNTR dictionary size determines q. Requested {q}, using {standard_q!r}.', stacklevel=2)
+    q=standard_q
     resolved_policy=out/'supernode_policy.json'
     annotation_model=model_path
     if q is None:
         shutil.copyfile(policy_path,resolved_policy)
     else:
-        if type(q) not in (int,float) or not 0 <= q <= 1:
-            raise ValueError('q must be in [0,1]')
-        q=float(q)
         _,_,full_features=annotate_paths(records,model_path,locus,decoder='hmm_single')
         # select_motifs counts only status and motif, before slot assignment or edits.
         choice=select_motifs(original,{p:f['tokens'] for p,f in full_features.items()},q)
@@ -380,7 +393,7 @@ def export_supernodes(out,locus,records,model_path,policy_path,render=True,input
     dump(out/'summary.json',summary)
     if render:
         from vntrsupernode_viewer import write_viewer
-        write_viewer(out,display,visits,variants,records,events,policy,rows)
+        write_viewer(out,display,visits,variants,records,events,policy,rows,display_model=model)
     manifest={k:metadata[k] for k in ('reference','reference_core_sha256','catalog_sha256','input_files',
               'extraction_version','boundary_model_sha256','input_identity','admission','bam_count','bam_audits',
               'reference_index_sha256','sources_sha256','previous_members_sha256') if k in metadata}

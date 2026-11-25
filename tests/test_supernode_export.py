@@ -38,6 +38,15 @@ def export(folder,records):
 
 
 class ExportTests(unittest.TestCase):
+    def test_dictionary_thresholds_and_names(self):
+        from vntrsupernode_export import dictionary_q_for_size
+        from vntrsupernode_viewer import motif_aliases
+        self.assertEqual([dictionary_q_for_size(n) for n in (1,3,4,8,9,10)],
+                         [None,None,.1,.1,.2,.2])
+        model=dict(motifs=[{'id':key} for key in ('B','U07','M9')],
+                   efficient_motif_selection={'mapping':{'A':'B','U07':'U07'}})
+        self.assertEqual(motif_aliases(model),{'B':'U1','A':'U1','U07':'U2','M9':'U3'})
+
     def test_dictionary_entry_points(self):
         from run_efficient_family import main as family_cli,run
         from vntrpathgraph_cli import main as graph_cli
@@ -82,14 +91,13 @@ class ExportTests(unittest.TestCase):
                         family_cli()
                     run(members,model,dest/'api',q=q,supernode_policy=policy,render=False)
                     prov=json.loads((g/'provenance.json').read_bytes())
-                    self.assertEqual(prov['dictionary_q'],q)
-                    self.assertEqual(prov['dictionary'],'full' if q is None else 'effective')
-                    names=['display_graph.json','path_visits.jsonl','annotation_audit.json']
-                    if q is not None:
-                        names+=['dictionary_selection.json','locus_model.efficient.json']
-                        selected=json.loads((g/names[-2]).read_bytes())['selected_ids']
-                        self.assertIn('U01',selected)
-                        self.assertEqual('U02' in selected,q==0)
+                    self.assertEqual(prov['dictionary_q'],.2)
+                    self.assertEqual(prov['dictionary'],'effective')
+                    names=['display_graph.json','path_visits.jsonl','annotation_audit.json',
+                           'dictionary_selection.json','locus_model.efficient.json']
+                    selected=json.loads((g/names[-2]).read_bytes())['selected_ids']
+                    self.assertIn('U01',selected)
+                    self.assertNotIn('U02',selected)
                     for name in names:
                         content=(g/name).read_bytes()
                         for other in ('cli','api'):

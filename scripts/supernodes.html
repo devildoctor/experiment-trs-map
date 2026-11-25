@@ -4,7 +4,7 @@
 header,nav,aside{padding:12px 18px}header{display:flex;gap:22px;align-items:baseline;background:#123742;color:white}h1{font-size:20px;margin:0}nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #cad8d6;background:white}
 select,button{font:inherit;border:1px solid #b4c8c6;border-radius:5px;padding:4px;background:white}button{cursor:pointer}label{display:inline-flex;gap:4px;align-items:center}main{display:grid;grid-template-columns:minmax(0,1fr) 355px;height:calc(100vh - 100px);min-height:420px}#canvas{min-width:0;background:#f8faf9}aside{overflow:auto;border-left:1px solid #cad8d6;background:white}aside p{line-height:1.65}aside select{max-width:100%}h2{font-size:16px}ol{padding-left:22px}li{margin:8px 0}code{font:12px Consolas,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}#tools{display:flex;gap:8px;margin:10px 0}.muted{color:#516870}#meta{font-size:13px} @media(max-width:800px){main{grid-template-columns:1fr;height:auto}#canvas{height:60vh}aside{border-top:1px solid #cad8d6}}
 [hidden]{display:none!important}body{display:flex;flex-direction:column;height:100vh}
-header{justify-content:space-between}header select{color:#203e46}nav{gap:18px}
+header{justify-content:flex-start}nav{gap:18px}
 #tracks{display:grid;grid-template-columns:1fr 1fr;background:#fff;border-bottom:1px solid #cad8d6}
 article{padding:10px 18px;min-width:0;border-left:5px solid #127c9a}article+article{border-color:#bc6550}
 article strong{margin-right:12px}article label{margin-right:8px}article p{margin:6px 0 0;line-height:1.5;font-size:13px}
@@ -13,7 +13,7 @@ main{flex:1;min-height:240px;height:auto}#canvas{min-height:200px}
 details{margin:10px 0}summary{cursor:pointer}details pre{max-height:160px;overflow:auto}
 @media(max-width:800px){body{height:auto}#tracks{grid-template-columns:1fr}#canvas{min-height:350px}}
 #scope{position:relative;margin:0}#scope div{position:absolute;z-index:10;background:white;border:1px solid #b4c8c6;padding:8px;width:220px}#range{width:100%}#tools{flex-wrap:wrap}article,article+article{border-color:#78918f}
-</style><header><h1 id="title"></h1><label>视图<select id="view"><option value="five">五路径位点图</option><option value="overview">全局总览</option><option value="compare">双路径比较</option></select></label></header>
+</style><header><h1 id="title"></h1></header><input type="hidden" id="view" value="five">
 <nav><label id="globalSample" hidden>总览样本<select id="sample"></select></label>
 <details id="scope"><summary>显示路径范围</summary><div><label for="range">多选路径（Ctrl / Shift）</label><select multiple id="range" size="8"></select><button id="allPaths">显示全部路径</button></div></details>
 <label id="traceChoice">高亮路径<select id="tracePath"></select></label><label>序列<select id="mode"><option value="original">原始</option><option value="represented">展示</option></select></label>
@@ -26,10 +26,28 @@ body.five > nav,body.five > main,body.five > #tracks,body.five > #legend{display
 #fivePanel{min-height:0;overflow:auto;flex:1;background:#f4f7f6}
 #fivePanel nav{position:sticky;top:0;z-index:2;gap:12px}#fiveSlots{display:flex;gap:8px;flex-wrap:wrap}
 #fiveSlots label{border-bottom:4px solid;padding:2px 0;font-variant-numeric:tabular-nums}
-#fiveSummary{margin:0;color:#24434d}#fiveCanvas{padding:0 14px 10px}
-.fiveRow{width:100%;display:block;background:white;border:1px solid #d2dedf;border-radius:8px;margin:8px 0}
-.fiveRow text{font:11px "Segoe UI","Microsoft YaHei",sans-serif;fill:#1c3541}
-.fiveRow .seq{font:11px Consolas,monospace}.fiveRow .unit{font-size:13px;font-weight:650}
+#fiveDictionary{margin:14px 14px;overflow-x:auto}
+#fiveDictionary table{border-collapse:collapse;border-spacing:0;font:24px Consolas,monospace;text-align:center}
+#fiveDictionary caption{text-align:left;font:600 28px "Segoe UI",sans-serif;margin-bottom:8px}
+#fiveDictionary th,#fiveDictionary td{border:0;padding:0}
+#fiveDictionary thead th{font-weight:400;font-size:20px}
+#fiveDictionary tbody th{text-align:left;padding-right:16px}
+#fiveDictionary td{min-width:34px;height:36px;font-weight:600}
+#fiveLegend{margin:8px 14px;padding:8px 12px;background:white;border:1px solid #d2dedf;border-radius:8px;font-size:13px;line-height:1.45}
+#fiveLegend h2{font-size:14px;margin:0 0 4px}
+#fiveLegend ul{display:flex;flex-wrap:wrap;gap:5px 22px;list-style:none;padding:0;margin:0}
+#fiveLegend li{margin:0;display:flex;align-items:baseline;gap:6px}
+#fiveLegend .sample{white-space:nowrap;align-self:flex-start;border:1px solid #829da2;border-radius:4px;background:#eef4f4;padding:0 4px;font-weight:600}
+#fiveLegend .literal{border-style:dashed;background:#f1efe8}
+#fiveLegend .loop{border:2px solid #465057;background:#e3f0ef}
+#fiveLegend .loop svg{vertical-align:middle}
+#fiveLegendPaths{display:inline-flex;flex-wrap:wrap;gap:10px}
+#fiveLegendPaths span{white-space:nowrap}
+#fiveLegendPaths span::before{content:'';display:inline-block;width:18px;border-top:3px solid var(--path-color);vertical-align:middle;margin-right:4px}
+#fiveSummary{margin:0;color:#24434d}#fiveCanvas{padding:0 14px 10px;overflow:auto;max-width:100%}
+.fiveRow{display:block;box-sizing:content-box;background:white;border:1px solid #d2dedf;border-radius:8px;margin:8px auto}
+.fiveRow text{font:clamp(11px,.8vw,13px) "Segoe UI","Microsoft YaHei",sans-serif;fill:#1c3541}
+.fiveRow .seq{font:11px Consolas,monospace}.fiveRow .unit{font-size:clamp(13px,.95vw,15px);font-weight:650}
 .fiveRow [data-paths]{cursor:pointer}.fiveRow .dim{opacity:.12}
 .structRow{background:white;margin:7px 14px;padding:9px 11px;border-left:4px solid}.structRow h3{margin:0 0 4px;font-size:15px}.structWalk{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.structWalk button{font:12px monospace;background:#edf6f1;border:1px solid #608e80;border-radius:4px;padding:4px 6px;cursor:pointer}.structWalk button.local{border-style:dashed;background:#f6f2ec}.structRow small{color:#48605b}.structRow.dim{opacity:.25}#blockEvidence{overflow-wrap:anywhere;white-space:pre-wrap}#fivePanel details{background:white;padding:8px 14px}#fivePanel pre{overflow-wrap:anywhere;white-space:pre-wrap}
 #fivePanel .rowLabel{fill:#526b73}.fiveRow .branch{font-size:10px}
@@ -37,11 +55,17 @@ body.five > nav,body.five > main,body.five > #tracks,body.five > #legend{display
 </style>
 <section id="fivePanel" hidden><nav><strong id="fiveSummary"></strong><div id="fiveSlots"></div>
 <label>高亮<select id="fiveTrace"></select></label></nav>
-<div style="padding:7px 14px"><label>比较原串 <select id="fiveBase"></select></label> 与 <select id="fiveOther" aria-label="第二条比较路径"></select>　<strong id="fiveDifference"></strong></div>
-<div id="fiveRoutes" aria-label="按登记顺序排列的结构块"></div>
-<details id="fiveLiteral"><summary>展开所选路径的原始 GFA 步序</summary><div id="fiveCanvas" aria-label="所选路径的原始序列图"></div></details>
-<details id="fiveJunctions"><summary>核对有分子支持、连续走法未登记的相邻边</summary><select id="fiveJunction"></select><p id="junctionCounts"></p></details>
-<details id="fiveEvidence"><summary>路径序列与两两对齐</summary><p id="fiveStats"></p><pre id="fiveDNA"></pre><pre id="fiveAlignment"></pre></details></section>
+<!-- MOTIF DICTIONARY -->
+<section id="fiveLegend" aria-labelledby="fiveLegendTitle"><h2 id="fiveLegendTitle">图例</h2><ul>
+<li><span class="sample">U1 / U2</span><span>实线框表示重复单元。′ 表示该拷贝相对模板有插入或缺失。</span></li>
+<li><span class="sample literal">CTGTCC</span><span>虚线框显示实际碱基，包括未解析片段，以及与模板差异超过 <span id="fiveDivergencePercent"></span> 的带 ′ 拷贝。</span></li>
+<li><span class="sample loop"><svg width="24" height="15" viewBox="0 0 24 15" aria-hidden="true"><path d="M 22 13 V 3 H 6 V 12 M 2 9 L 6 13 L 10 9" fill="none" stroke="currentColor"/></svg> ×N</span><span>同一单元连续出现至少 3 份时折成一个环。N 是总份数，首次进入后回环 N−1 次。</span></li>
+<li><span>环的描边：一条所选路径独有时用该路径色，多条所选路径共用时用深灰色。</span></li>
+<li><span>路径线</span><span id="fiveLegendPaths"></span></li>
+</ul></section>
+<div id="fiveCanvas" aria-label="所选路径的原始序列图"></div>
+<details><summary>按登记顺序查看结构块</summary><div id="fiveRoutes"></div></details>
+</section>
 <script>/* CYTOSCAPE */</script><script>/* COMPARE */</script><script>/* PROJECTION */</script><script>
 'use strict';
 const data=/* DATA */;
@@ -70,8 +94,10 @@ function selectPaths(track){
   if([...select.options].some(o=>o.value===previous))select.value=previous;
 }
 tracks.forEach(selectPaths);
-el('title').textContent=data.graph.locus+' 重复结构';
-const pattern=n=>n.ordered_pattern.map(k=>k[0]).join('·');
+el('title').textContent=document.title=data.graph.locus+' 重复结构图';
+const motifAliases=/* MOTIF ALIASES */;
+const motifName=token=>Object.hasOwn(motifAliases,token[0]) && token[3]!=='unknown' && token[4]!=='right_terminal' && token[4]!=='left_terminal'?motifAliases[token[0]]:token[0];
+const pattern=n=>n.ordered_pattern.map(motifName).join('·');
 
 function stateLabel(n,v){
   if(n.ordered_pattern[0][3]==='unknown')return '未解析';
@@ -179,9 +205,8 @@ function overview(){
     const state=projection.states.get(d.state_id),block=projection.blocks.get(d.sn),n=nodes[d.sn];
     let caption=pattern(n),flag='';
     if(d.view_kind==='copy'){
-      const motif=n.ordered_pattern[d.index%n.ordered_pattern.length][0];
-      const dna=d.dna.length>16?d.dna.slice(0,14)+'…':d.dna;
-      caption=d.visit_id+' · '+(d.index+1)+' '+motif+'\n'+dna;
+      const motif=motifName(n.ordered_pattern[d.index%n.ordered_pattern.length]);
+      caption=(n.ordered_pattern[d.index%n.ordered_pattern.length][3]==='unknown'?d.dna:motif)+'\n'+d.dna.length+'bp';
       if(mode==='represented' && d.changed)flag='loss';
     }else if(state){
       caption+=' ×'+state.repeat_count;
@@ -295,7 +320,7 @@ function unitDetails(n,choice,sample,index=null){
     const li=document.createElement('li'),code=document.createElement('code'),ori=data.variants[choice.original_variant_ids[i]],rep=data.variants[choice.represented_variant_ids[i]];
     const unit=n.ordered_pattern[i%n.ordered_pattern.length];
     const mode=el('mode').value;
-    li.value=i+1;code.textContent=oid+' '+unit[0]+' '+unit[4]+' '+unit[3]+'\n'+(mode==='original'?'当前 · 原始':'原始')+' '+ori+' · S'+choice.original_gfa_walk[i]+'\n'+(mode==='represented'?'当前 · 展示':'展示')+' '+rep+' · S'+choice.represented_gfa_walk[i];
+    li.value=i+1;code.textContent=oid+' '+motifName(unit)+' '+unit[4]+' '+unit[3]+'\n'+(mode==='original'?'当前 · 原始':'原始')+' '+ori+' · S'+choice.original_gfa_walk[i]+'\n'+(mode==='represented'?'当前 · 展示':'展示')+' '+rep+' · S'+choice.represented_gfa_walk[i];
     code.style.whiteSpace='pre-wrap';li.append(code);
     for(const eid of choice.loss_event_ids){
       const e=data.losses[eid];if(e.occurrence_id!==oid)continue;
@@ -382,7 +407,7 @@ el('focusBlock').onclick=()=>{
   if(block.length)cy.fit(block.union(block.descendants()),35);
 };
 el('fit').onclick=()=>{if(cy.elements().length)cy.fit(cy.elements(),30)};
-const palette=['#0072B2','#D55E00','#009E73','#CC79A7','#E69F00'];
+const palette=['#0072B2','#D55E00','#009E73','#CC79A7','#292D32'];
 const choices=[], pathIds=Object.keys(paths).filter(p=>data.path_info[p].role==='observation');
 let fiveWalks=new Map();
 for(let i=0;i<5;i++){
@@ -392,15 +417,83 @@ for(let i=0;i<5;i++){
   select.value=pathIds[i]||'';choices.push(select);label.append(select);el('fiveSlots').append(label);
   select.onchange=drawFive;
 }
+const visibleTemplates=new Map(Array.from(document.querySelectorAll('[data-template-bases]'),
+  row=>[row.dataset.motif,row.dataset.templateBases]));
+const divergencePercent=25;
+el('fiveDivergencePercent').textContent=divergencePercent+'%';
+const differenceCache=new Map();
+
+// Coordinates are 1-based in the unaligned dictionary row. Insertion k is before template base k.
+function templateDifference(template,dna){
+  if(template===dna)return {indels:'',edits:0,divergent:false};
+  const m=template.length,n=dna.length,stride=n+1;
+  // Minimize edit distance, then the number of gap bases.
+  const edit=m+n+1,gap=edit+1;
+  const cost=new Uint32Array((m+1)*stride);
+  for(let i=m;i>=0;i--)for(let j=n;j>=0;j--){
+    const k=i*stride+j;
+    if(i===m)cost[k]=(n-j)*gap;
+    else if(j===n)cost[k]=(m-i)*gap;
+    else cost[k]=Math.min(cost[k+stride+1]+(template[i]===dna[j]?0:edit),
+      cost[k+stride]+gap,cost[k+1]+gap);
+  }
+  const events=[];
+  let i=0,j=0,last=null;
+  while(i<m || j<n){
+    const k=i*stride+j;
+    // At equal cost, put the gap at the earliest permissible template position.
+    const del=i<m && cost[k]===cost[k+stride]+gap;
+    const ins=!del && j<n && cost[k]===cost[k+1]+gap;
+    if(!del && !ins){i++;j++;last=null;continue}
+    const sign=del?'-':'+';
+    if(!last || last.sign!==sign){last={pos:i+1,sign,bases:''};events.push(last)}
+    last.bases+=del?template[i++]:dna[j++];
+  }
+  // The secondary gap-base cost is always smaller than one edit weight.
+  const edits=Math.floor(cost[0]/edit);
+  const indels=events.map(e=>e.pos+e.sign+e.bases).join(' · ');
+  return {indels,edits,divergent:events.length>0 && 100*edits>divergencePercent*m};
+}
+
+function copyDifference(unit,dna){
+  const template=visibleTemplates.get(unit);
+  if(!template)return null;
+  const key=template+'|'+dna;
+  if(!differenceCache.has(key))differenceCache.set(key,templateDifference(template,dna));
+  return differenceCache.get(key);
+}
+
 function fiveWalk(p){
   return paths[p].flatMap(v=>{
     let start=v.original_interval[0];
     return v.original_gfa_walk.map((id,i)=>{
-      const dna=data.variants[v.original_variant_ids[i]],pattern=nodes[v.supernode_id].ordered_pattern;
-      const step={id:String(id),dna,start,unit:pattern[i%pattern.length][0],unknown:pattern[i%pattern.length][3]==="unknown"};
+      const dna=data.variants[v.original_variant_ids[i]],node=nodes[v.supernode_id];
+      const token=node.ordered_pattern[i%node.ordered_pattern.length];
+      const unit=motifName(token),unknown=token[3]==='unknown';
+      const difference=unknown?null:copyDifference(unit,dna);
+      const literal=unknown || !!difference?.divergent;
+      const repeatKey=!literal && !node.protected && token[3]==='unit' && token[4]==='internal'?JSON.stringify(token):null;
+      const step={id:String(id),dna,start,unit,literal,difference,repeatKey};
       start+=dna.length;return step;
     });
   });
+}
+function foldFiveRuns(walk){
+  const result=[];
+  for(let i=0;i<walk.length;){
+    const first=walk[i];
+    let end=i+1;
+    while(end<walk.length && first.repeatKey && walk[end].repeatKey===first.repeatKey)end++;
+    if(end-i>=3){
+      const copies=walk.slice(i,end);
+      // Share a loop only for the same ordered original segments and repeat annotation.
+      result.push({...first,id:JSON.stringify(['loop',first.repeatKey,copies.map(s=>s.id)]),copies});
+    }else{
+      for(let j=i;j<end;j++)result.push(walk[j]);
+    }
+    i=end;
+  }
+  return result;
 }
 function drawStructureRows(ids,colors){
   const root=el('fiveRoutes');root.replaceChildren();
@@ -439,49 +532,11 @@ function drawStructureRows(ids,colors){
   }
   const detail=document.createElement('pre');detail.id='blockEvidence';root.append(detail);
 }
-let junctions;
-el('fiveJunctions').ontoggle=()=>{
-  if(!el('fiveJunctions').open || junctions)return;
-  junctions=untraversedJunctions(data.graph.edges,paths);
-  const select=el('fiveJunction');
-  junctions.forEach((j,i)=>option(select,String(i),j.left+' / '+j.right+' 分子 · '+j.route[1]));
-  select.onchange=()=>{const j=junctions[Number(select.value)];el('junctionCounts').textContent=j?j.route.join(' → ')+' · 两条边分别有 '+j.left+'、'+j.right+' 个支持分子 · 连续经过的登记 P 为 0':'未发现这类相邻边';};
-  select.onchange();
-};
-function showFiveDetails(){
-  const p=el('fiveTrace').value,w=fiveWalks.get(p)||[];
-  el('fiveDNA').textContent=w.map(s=>s.dna).join('');
-  el('fiveStats').textContent=p?p+' · '+data.path_info[p].length+' bp · '+data.path_info[p].molecule_keys.length+' 个支持分子 · '+Object.keys(data.samples[p]).join('、'):'选择路径以查看序列';
+function highlightFivePath(){
+  const p=el('fiveTrace').value;
   for(const e of el('fiveCanvas').querySelectorAll('[data-paths]'))
     e.classList.toggle('dim',!!p&&!e.getAttribute('data-paths').split(' ').includes(p));
   for(const row of el('fiveRoutes').querySelectorAll('.structRow'))row.classList.toggle('dim',!!p&&row.dataset.path!==p);
-  const base=el('fiveBase').value,q=el('fiveOther').value;
-  const a=(fiveWalks.get(base)||[]).map(s=>s.dna).join(''),b=(fiveWalks.get(q)||[]).map(s=>s.dna).join('');
-  const pair=base&&q&&base!==q;
-  el('fiveDifference').textContent=pair?describeRawDifference(a,b):'请选择两条不同的路径';
-  el('fiveAlignment').textContent=pair&&el('fiveEvidence').open?alignFive(a,b):'';
-}
-// Unit-cost global edit alignment. Retain ties on the displayed traceback.
-function describeRawDifference(a,b){
-  const difference=rawDifference(a,b);
-  return difference.lengthDifference===0?'原串等长，逐位差异 '+difference.mismatches+' 处':'原串长度相差 '+difference.lengthDifference+' bp，单段删除可匹配的起点 '+difference.starts+' 个'+(difference.starts?'（0 起点 '+difference.first+' 至 '+difference.last+'）':'');
-}
-function alignFive(a,b){
-  const measure=describeRawDifference(a,b);
-  const d=Array.from({length:a.length+1},()=>new Uint32Array(b.length+1));
-  for(let i=0;i<=a.length;i++)d[i][0]=i;
-  for(let j=0;j<=b.length;j++)d[0][j]=j;
-  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)
-    d[i][j]=Math.min(d[i-1][j-1]+Number(a[i-1]!==b[j-1]),d[i-1][j]+1,d[i][j-1]+1);
-  let i=a.length,j=b.length,tie=false,x=[],y=[];
-  while(i||j){
-    const v=d[i][j],diag=i&&j&&v===d[i-1][j-1]+Number(a[i-1]!==b[j-1]),up=i&&v===d[i-1][j]+1,left=j&&v===d[i][j-1]+1;
-    if(Number(diag)+Number(up)+Number(left)>1)tie=true;
-    if(diag){x.push(a[--i]);y.push(b[--j])}else if(up){x.push(a[--i]);y.push('-')}else{x.push('-');y.push(b[--j])}
-  }
-  x.reverse();y.reverse();const rows=[measure,tie?'存在等价对齐，显示其中一种':'全局最小编辑对齐'];
-  for(let k=0;k<x.length;k+=28){const u=x.slice(k,k+28),v=y.slice(k,k+28);rows.push(u.join(''),u.map((c,h)=>c===v[h]?'·':'^').join(''),v.join(''),'')}
-  return rows.join('\n');
 }
 const svgNS='http://www.w3.org/2000/svg';
 function mark(parent,type,attrs,caption){
@@ -492,25 +547,31 @@ function mark(parent,type,attrs,caption){
 }
 function drawFive(){
   const ids=choices.map(s=>s.value).filter(Boolean),colors=new Map(choices.map((s,i)=>[s.value,palette[i]]));
+  const legendPaths=el('fiveLegendPaths');
+  legendPaths.replaceChildren();
+  for(const p of ids){
+    const key=document.createElement('span');
+    key.textContent=p;key.style.setProperty('--path-color',colors.get(p));legendPaths.append(key);
+  }
   for(const s of choices)for(const o of s.options)o.disabled=!!o.value&&o.value!==s.value&&ids.includes(o.value);
   fiveWalks=new Map(ids.map(p=>[p,fiveWalk(p)]));
   drawStructureRows(ids,colors);
-  for(const key of ['fiveTrace','fiveBase','fiveOther']){
-    const s=el(key),old=s.value;s.replaceChildren();option(s,'',key==='fiveTrace'?'全部':'未选');
-    for(const p of ids)option(s,p,p);
-    s.value=ids.includes(old)?old:key==='fiveBase'?(ids[0]||''):key==='fiveOther'?(ids[1]||''):'';
-  }
+  const trace=el('fiveTrace'),previous=trace.value;
+  trace.replaceChildren();option(trace,'','全部');
+  for(const p of ids)option(trace,p,p);
+  trace.value=ids.includes(previous)?previous:'';
   const root=el('fiveCanvas');root.replaceChildren();
   el('fiveSummary').textContent=data.graph.locus+' · '+ids.length+' 条路径';
-  if(!ids.length){root.textContent='请选择路径';showFiveDetails();return}
+  if(!ids.length){root.textContent='请选择路径';highlightFivePath();return}
+  const displayWalks=new Map([...fiveWalks].map(([p,walk])=>[p,foldFiveRuns(walk)]));
   // Rank only visited GFA segments. Cyclic input retains a distinct displayed occurrence per step.
   const graph=new Map();
   function indexWalks(unroll){
     graph.clear();
-    for(const [p,walk] of fiveWalks){
+    for(const [p,walk] of displayWalks){
       let previous;
       walk.forEach((s,i)=>{
-        s.key=unroll?p+':'+i:s.id;
+        s.key=unroll?p+':'+i:s.difference?.divergent?JSON.stringify(['literal',s.id,s.unit]):s.id;
         if(!graph.has(s.key))graph.set(s.key,{step:s,visits:[],next:new Set(),degree:0,rank:0});
         const n=graph.get(s.key);n.visits.push({p,s});
         if(previous&&!previous.next.has(n)){previous.next.add(n);n.degree++}
@@ -531,71 +592,123 @@ function drawFive(){
     n.members=[...new Set(n.visits.map(v=>v.p))];
     n.order=n.members.reduce((a,p)=>a+ids.indexOf(p),0)/n.members.length;
   }
-  const width=Math.max(360,root.clientWidth-30),margin=63;
-  const capacity=Math.max(2,Math.floor((width-2*margin)/105));
-  const totalRows=Math.ceil(columns.length/capacity);
-  const span=Math.ceil(columns.length/totalRows);
-  for(let start=0;start<columns.length;start+=span){
-    const batch=columns.slice(start,start+span),end=start+batch.length;
-    const layers=Math.max(...batch.map(col=>col.length));
-    const body=Math.max(105,layers*85),mid=30+body/2;
-    const position=new Map(),edges=[],bypasses=new Set();
-    const x=i=>margin+(i+.5)*(width-2*margin)/span;
-    batch.forEach((col,i)=>{
-      col.sort((a,b)=>a.order-b.order);
-      col.forEach((n,j)=>position.set(n,{x:x(i),y:mid+(j-(col.length-1)/2)*85}));
-    });
-    for(const [p,walk] of fiveWalks){
-      const route=walk.map(s=>graph.get(s.key)),k=ids.indexOf(p),offset=(k-(ids.length-1)/2)*3;
-      if(route.at(-1).rank<start||route[0].rank>=end)continue;
-      const rail=mid+(k-(ids.length-1)/2)*19;
-      let prev={x:margin-12,y:rail,r:start-1};
-      for(const n of route.filter(n=>position.has(n))){
-        const pt=position.get(n),to={x:pt.x-40,y:pt.y+offset,r:n.rank};
-        edges.push({p,a:prev,b:to});
-        prev={x:pt.x+40,y:pt.y+offset,r:n.rank};
-      }
-      edges.push({p,a:prev,b:{x:width-margin+12,y:rail,r:end}});
+  const margin=91,terminalInset=51;
+  for(const n of graph.values()){
+    if(n.step.copies){
+      n.half=60;
+      continue;
     }
-    for(const e of edges)if(e.b.r-e.a.r>1)bypasses.add(e.p);
-    const height=body+47+bypasses.size*6;
-    const svg=mark(root,'svg',{viewBox:'0 0 '+width+' '+height,class:'fiveRow',role:'group','aria-label':'路径图第 '+(start/span+1)+' 行'});
-    mark(svg,'text',{x:12,y:16,class:'rowLabel'},'路径从左向右  ·  '+(1+start/span)+' / '+totalRows);
-    for(const {p,a,b} of edges){
-      const m=(a.x+b.x)/2,c=colors.get(p),shelf=body+36+[...bypasses].indexOf(p)*6;
-      const d=b.r-a.r>1?'M '+a.x+' '+a.y+' C '+(a.x+14)+' '+a.y+' '+(a.x+12)+' '+shelf+' '+(a.x+20)+' '+shelf+' H '+(b.x-20)+' C '+(b.x-12)+' '+shelf+' '+(b.x-14)+' '+b.y+' '+b.x+' '+b.y:
-        'M '+a.x+' '+a.y+' C '+m+' '+a.y+' '+m+' '+b.y+' '+b.x+' '+b.y;
-      mark(svg,'path',{d,fill:'none',stroke:c,'stroke-width':2.7,'data-paths':p});
+    const annotations=new Map();
+    for(const {s} of n.visits){
+      const changes=s.literal?'':s.difference?.indels||'';
+      annotations.set(s.literal?s.dna:s.unit+(changes?'′':''),changes);
     }
-    for(const [p,walk] of fiveWalks){
-      if(graph.get(walk[0].key).rank>=end||graph.get(walk.at(-1).key).rank<start)continue;
-      const y=mid+(ids.indexOf(p)-(ids.length-1)/2)*19+4;
-      for(const [x,anchor] of [[margin-15,'end'],[width-margin+15,'start']])
-        mark(svg,'text',{x,y,'text-anchor':anchor,style:'fill:'+colors.get(p)+';font-weight:bold','data-paths':p},p);
+    n.label=[...annotations.keys()].join(' / ');
+    n.indels=[...annotations].filter(([,changes])=>changes).map(([unit,changes])=>
+      annotations.size===1?changes:unit+' '+changes).join(' / ');
+    n.half=Math.max(40,n.label.length*6+8,n.indels.length*5+8);
+  }
+  const routes=new Map([...displayWalks].map(([p,walk])=>[p,walk.map(s=>graph.get(s.key))]));
+  const bypassPaths=ids.filter(p=>{
+    const ranks=[-1,...routes.get(p).map(n=>n.rank),columns.length];
+    return ranks.some((rank,i)=>i>0 && rank-ranks[i-1]>1);
+  });
+  const topCount=Math.ceil(bypassPaths.length/2),laneGap=11;
+  const topSpace=topCount*laneGap,bottomSpace=(bypassPaths.length-topCount)*laneGap;
+  const layers=columns.reduce((n,col)=>Math.max(n,col.length),0);
+  const rowGap=[...graph.values()].some(n=>n.step.copies)?130:85;
+  const body=Math.max(105,layers*rowGap),mid=topSpace+30+body/2;
+  const position=new Map(),edges=[],channels=[];
+  const halfWidths=columns.map(col=>col.reduce((h,n)=>Math.max(h,n.half),40));
+  const style=getComputedStyle(root);
+  const available=root.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-2;
+  const fixedWidth=2*margin+halfWidths.reduce((sum,half)=>sum+2*half,0);
+  const columnGap=Math.max(44,Math.min(96,(available-fixedWidth)/Math.max(1,columns.length-1)));
+  channels.push([terminalInset,margin]);
+  let right=margin;
+  for(const [index,col] of columns.entries()){
+    col.sort((a,b)=>a.order-b.order);
+    const half=halfWidths[index];
+    const x=right+half;
+    col.forEach((n,j)=>position.set(n,{x,y:mid+(j-(col.length-1)/2)*rowGap}));
+    channels.push([x+half,x+half+columnGap]);
+    right=x+half+columnGap;
+  }
+  const width=right-columnGap+margin;
+  channels.at(-1)[1]=width-terminalInset;
+  for(const [p,route] of routes){
+    const k=ids.indexOf(p),offset=(k-(ids.length-1)/2)*6;
+    const rail=mid+(k-(ids.length-1)/2)*19;
+    let prev={x:terminalInset,y:rail,r:-1};
+    for(const n of route){
+      const pt=position.get(n),to={x:pt.x-n.half,y:pt.y+offset,r:n.rank};
+      edges.push({p,a:prev,b:to});
+      prev={x:pt.x+n.half,y:pt.y+offset,r:n.rank};
     }
-    for(const [n,pt] of position){
-      const {x,y}=pt,s=n.step,group=mark(svg,'g',{'data-paths':n.members.join(' ')});
-      mark(group,'title',{},n.visits.map(({p,s})=>p+' · S'+s.id+' ['+s.start+','+(s.start+s.dna.length)+') '+s.unit+' '+s.dna).join('\n'));
-      mark(group,'rect',{x:x-40,y:y-25,width:80,height:53,rx:5,fill:s.unknown?'#f1efe8':'#eef4f4',stroke:'#829da2','stroke-dasharray':s.unknown?'3 2':'none'});
-      const units=[...new Set(n.visits.map(({s})=>s.unknown?'未归类':s.unit))];
-      mark(group,'text',{x,y:y-9,'text-anchor':'middle',class:'unit'},(units.length===1?units[0]:'多注释')+' · '+s.dna.length+' bp');
-      const dna=s.dna.length<=20?s.dna:s.dna.slice(0,9)+'…'+s.dna.slice(-9);
-      const cut=Math.min(10,Math.ceil(dna.length/2));
-      mark(group,'text',{x,y:y+5,'text-anchor':'middle',class:'seq'},dna.slice(0,cut));
-      mark(group,'text',{x,y:y+18,'text-anchor':'middle',class:'seq'},dna.slice(cut));
-      const bar=74/n.members.length;
-      n.members.forEach((p,i)=>mark(group,'rect',{x:x-37+i*bar,y:y+23,width:bar,height:4,fill:colors.get(p)}));
-      if(n.members.length===1)mark(group,'text',{x,y:y-29,'text-anchor':'middle',class:'branch',style:'fill:'+colors.get(n.members[0])},n.members[0]);
+    edges.push({p,a:prev,b:{x:width-terminalInset,y:rail,r:columns.length}});
+  }
+  const height=topSpace+body+47+bottomSpace;
+  const svg=mark(root,'svg',{width,height,viewBox:`0 0 ${width} ${height}`,preserveAspectRatio:'xMidYMid meet',class:'fiveRow',role:'group','aria-label':'五路径位点图'});
+  // Give each path a distinct bend position in every column gap.
+  function bendX(channel,pathIndex){
+    const [left,right]=channels[channel];
+    return left+(right-left)*(pathIndex+1)/(ids.length+1);
+  }
+  for(const {p,a,b} of edges){
+    const k=ids.indexOf(p),leaveX=bendX(a.r+1,k);
+    let d=`M ${a.x} ${a.y} H ${leaveX} V ${b.y} H ${b.x}`;
+    if(b.r-a.r>1){
+      const lane=bypassPaths.indexOf(p),enterX=bendX(b.r,k);
+      const shelf=lane<topCount?14+lane*laneGap:topSpace+body+36+(lane-topCount)*laneGap;
+      d=`M ${a.x} ${a.y} H ${leaveX} V ${shelf} H ${enterX} V ${b.y} H ${b.x}`;
+    }
+    mark(svg,'path',{d,fill:'none',stroke:colors.get(p),'stroke-width':2.2,
+      'stroke-linecap':'round','data-paths':p});
+  }
+  for(const [p,walk] of fiveWalks){
+    const y=mid+(ids.indexOf(p)-(ids.length-1)/2)*19+4;
+    for(const [x,anchor] of [[terminalInset-3,'end'],[width-terminalInset+3,'start']])
+      mark(svg,'text',{x,y,'text-anchor':anchor,style:'fill:'+colors.get(p)+';font-weight:bold','data-paths':p},p);
+  }
+  for(const [n,pt] of position){
+    const {x,y}=pt,s=n.step,group=mark(svg,'g',{'data-paths':n.members.join(' ')});
+    if(s.copies){
+      const count=s.copies.length, bp=s.copies.reduce((total,copy)=>total+copy.dna.length,0);
+      const ink=n.members.length===1?colors.get(n.members[0]):'#465057';
+      const indels=s.copies.map(copy=>copy.difference?.indels||'');
+      group.setAttribute('data-loop-copies',count);
+      mark(group,'rect',{x:x-n.half,y:y-25,width:2*n.half,height:53,rx:12,fill:'#e3f0ef',stroke:ink});
+      const loopLeft=x-26,loopRight=x+26,loopTop=y-53,nodeTop=y-25;
+      mark(group,'path',{d:`M ${loopRight} ${nodeTop} V ${loopTop} H ${loopLeft} V ${nodeTop}`,stroke:ink,'stroke-width':2.2,fill:'none'});
+      mark(group,'polygon',{points:`${loopLeft-5},${nodeTop-9} ${loopLeft+5},${nodeTop-9} ${loopLeft},${nodeTop}`,fill:ink});
+      mark(group,'text',{x,y:loopTop-8,'text-anchor':'middle'},'回环 '+(count-1)+' 次');
+      mark(group,'text',{x,y:y-7,'text-anchor':'middle',class:'unit'},s.unit+' ×'+count);
+      mark(group,'text',{x,y:y+8,'text-anchor':'middle'},'共 '+bp+' bp');
+      if(indels.some(Boolean))
+        mark(group,'text',{x,y:y+22,'text-anchor':'middle'},'含插缺');
+      mark(group,'title',{},n.members.join('、')+' · 首次进入 1 次，回环 '+(count-1)+' 次\n'+s.copies.map((copy,i)=>(i+1)+'. '+copy.dna+(indels[i]?'  '+indels[i]:'')).join('\n'));
+      continue;
+    }
+    mark(group,'rect',{x:x-n.half,y:y-25,width:2*n.half,height:53,rx:5,fill:s.literal?'#f1efe8':'#eef4f4',stroke:'#829da2','stroke-dasharray':s.literal?'3 2':'none'});
+    if(s.difference?.divergent){
+      const length=visibleTemplates.get(s.unit).length;
+      group.dataset.divergentUnit=s.unit;
+      mark(group,'title',{},s.unit+'′ · 编辑距离 '+s.difference.edits+' / 模板 '+length+' bp（'+(100*s.difference.edits/length).toFixed(1)+'%）');
+    }
+    mark(group,'text',{x,y:y-(n.indels?10:3),'text-anchor':'middle',class:'unit'},n.label);
+    mark(group,'text',{x,y:y+(n.indels?4:14),'text-anchor':'middle'},s.dna.length+'bp');
+    if(n.indels){
+      mark(group,'text',{x,y:y+19,'text-anchor':'middle',class:'indels'},n.indels);
+      mark(group,'title',{},'相对简化字典，位置从 1 起算。+ 表示在该位置前插入，− 表示从该位置缺失。等价位置取最左。');
     }
   }
-  showFiveDetails();
+  highlightFivePath();
 }
 el('fiveCanvas').onclick=e=>{
   const p=e.target.closest('[data-paths]')?.getAttribute('data-paths');
-  if(p&&!p.includes(' ')){el('fiveTrace').value=el('fiveTrace').value===p?'':p;showFiveDetails()}
+  if(p&&!p.includes(' ')){el('fiveTrace').value=el('fiveTrace').value===p?'':p;highlightFivePath()}
 };
-for(const id of ['fiveTrace','fiveBase','fiveOther'])el(id).onchange=showFiveDetails;
-el('fiveEvidence').ontoggle=showFiveDetails;
+el('fiveTrace').onchange=highlightFivePath;
 let lastWidth=0;
 new ResizeObserver(()=>{
   const width=el('fiveCanvas').clientWidth;

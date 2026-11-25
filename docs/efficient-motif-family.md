@@ -22,17 +22,17 @@ STR 使用模型旁或内置目录中的 `<locus>.structure-policy.v1.json`，�
 
 ## 运行及输出
 
-构建结构超节点时，省略 `--q` 会直接使用原始完整字典。显式指定 `--q`（包括 0）会先以完整字典进行 `hmm_single` 注释，按上述规则筛选 motif，然后用得到的模型执行 `hmm_assessed` 并构建超节点。两个入口均接受原始位点模型。逐路径改写预算取自超节点策略中的 `loss_fraction`。
+VNTR 超节点按原始内部模板数选取字典，1–3 个保留全字典，4–8 个使用 q=0.1，9 个及以上使用 q=0.2。页面按实际使用的模板顺序统一编号为 U1、U2 等。 独立末端模板不计入阈值。旧命令的 `--q` 与分档冲突时会提示实际采用的设置。两个入口均接受原始位点模型。逐路径改写预算取自超节点策略中的 `loss_fraction`。
 
 ```bash
 python scripts/run_efficient_family.py --input /path/to/source_members.json \
   --model catalogs/D1S80.structure.v1.json --out /path/to/new_bundle \
-  --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2
+  --supernode-policy catalogs/D1S80.supernodes.v1.json
 
 python scripts/vntrpathgraph_cli.py --bam-dir /path/to/bams --locus D1S80 \
   --reference /path/to/GRCh38.fa --catalog catalogs/grch38_pointgraph_10_loci_v1.bed \
   --graph-mode structure --locus-model catalogs/D1S80.structure.v1.json \
-  --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 --out /path/to/new_root
+  --supernode-policy catalogs/D1S80.supernodes.v1.json --out /path/to/new_root
 ```
 
 在结果目录（路径图入口为输出根目录下的 `D1S80/`）查看 `provenance.json` 的 `dictionary`、`dictionary_q` 和 `model_sha256`。后者标识实际传入 HMM 的模型。有效字典模式还保存 `dictionary_selection.json`、`locus_model.original.json`、`locus_model.efficient.json` 及两者哈希，`supernode_policy.json` 记录实际运行策略。可用 `python scripts/vntrsupernode_export.py /path/to/bundle` 复核。

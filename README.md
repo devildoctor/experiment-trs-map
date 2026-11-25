@@ -10,7 +10,7 @@
 |---|---|---|
 | D1S80 的 VNTR 重复单元、路径和分子支持 | `scripts/vntrpathgraph_cli.py`，结构模式加超节点策略 | `D1S80/D1S80.supernodes.html`，默认对比五条观察路径 |
 | ATXN2 的 STR 单元次数和中断 | 同一入口，使用 ATXN2 冻结模型和 STR 结构策略 | `ATXN2/index.html`，也可打开 `ATXN2.observed-str.svg` 或同名 GFA |
-| 用已有成员重建 VNTR 图，比较全字典与精简字典 | `scripts/run_efficient_family.py` 加 `--supernode-policy` | 输出目录内的 `D1S80.supernodes.html`、`summary.json` 和改写账本 |
+| 用已有成员重建 VNTR 图 | `scripts/run_efficient_family.py` 加 `--supernode-policy` | 输出目录内的 `D1S80.supernodes.html`、`summary.json` 和改写账本 |
 | 按锚点建立候选序列点图 | `scripts/vntrgraph.py run` | 位点目录中的 `candidates.tsv`、`assignments.tsv`、`anchor_decisions.jsonl` |
 | 从单个 BAM 筛选候选 reads，输出 BAM、FASTQ 和审计表 | `experiment-trs-map/scripts/extract_candidate_reads.py` | 筛选工具的 `*.manifest.tsv`、`*.audit.tsv`。[用法与参数](experiment-trs-map/README.md) |
 
@@ -45,7 +45,7 @@ OUT=run-point-graphs
 python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" \
   --catalog "$CAT" --locus D1S80 --graph-mode structure \
   --locus-model catalogs/D1S80.structure.v1.json \
-  --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 --out "$OUT"
+  --supernode-policy catalogs/D1S80.supernodes.v1.json --out "$OUT"
 
 python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" \
   --catalog "$CAT" --locus ATXN2 --graph-mode structure \
@@ -53,7 +53,9 @@ python scripts/vntrpathgraph_cli.py --bam-dir "$BAMS" --reference "$REF" \
   --structure-policy catalogs/ATXN2.structure-policy.v1.json --out "$OUT"
 ```
 
-D1S80 示例以 HMM 注释并选择有效字典，省略 `--q` 即使用全字典。`q` 控制字典选择，随附超节点策略中的 3% 是每条观察路径允许的表示层碱基改写上限。ATXN2 示例沿用冻结字典和 `seed_dp`。图上分别标出该路径的连续重复次数和支持它的分子键数。
+VNTR 超节点按原始内部模板数选择字典：1–3 个使用全字典，4–8 个使用 `q=0.1`，9 个及以上使用 `q=0.2`。独立末端模板不计入模板数。随附超节点策略中的 3% 是每条观察路径允许的表示层碱基改写上限。ATXN2 沿用冻结字典和 `seed_dp`。
+
+五路径图以 `U1`、`U2` 等标注重复单元。符合折叠条件的连续三份及以上同类单元用直角自环表示。带插缺的拷贝若相对模板的编辑距离超过模板长度的 25%，图中直接显示观察碱基。
 
 ### 从同一批成员重新建图
 
@@ -62,7 +64,7 @@ D1S80 示例以 HMM 注释并选择有效字典，省略 `--q` 即使用全字�
 ```bash
 python scripts/run_efficient_family.py --input "$OUT/D1S80/source_members.json" \
   --reference "$REF" --model catalogs/D1S80.structure.v1.json \
-  --supernode-policy catalogs/D1S80.supernodes.v1.json --q 0.2 \
+  --supernode-policy catalogs/D1S80.supernodes.v1.json \
   --out "$OUT/D1S80-from-members"
 
 python scripts/vntrsupernode_export.py "$OUT/D1S80" --source-root .

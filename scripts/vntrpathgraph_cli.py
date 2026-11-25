@@ -198,7 +198,7 @@ def main():
     p.add_argument('--graph-mode',choices=['sequence','structure'],default='sequence')
     p.add_argument('--locus-model',type=Path);p.add_argument('--structure-policy',type=Path)
     p.add_argument('--supernode-policy',type=Path)
-    p.add_argument('--q',type=float,help='Select an effective motif dictionary for supernode annotation')
+    p.add_argument('--q',type=float,help='Legacy request. VNTR supernodes choose q by original motif count (1–3 full, 4–8 0.1, 9+ 0.2).')
     p.add_argument('--max-loss-bp',type=int,default=0,choices=[0,1,2])
     p.add_argument('--dot',default='dot')
     p.add_argument('--previous-members',type=Path,help='Optional previous source_members.json for old-name mapping')
